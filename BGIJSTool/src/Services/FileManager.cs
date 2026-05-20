@@ -41,7 +41,7 @@ namespace BGIJSTool.Services
                 {
                     case "bak":  BackupFile(path, logger); break;
                     case "del":  DeleteFile(path, logger); break;
-                    case "copy": RestoreFile(path, logger); break;
+                    case "restore": RestoreFile(path, logger); break;
                     default:     logger.LogWarning($"未知操作类型: {step.op}，跳过 {path}"); break;
                 }
             }

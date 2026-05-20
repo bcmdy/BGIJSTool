@@ -1,0 +1,19 @@
+# .NET build outputs
+BGIJSTool/src/bin/
+BGIJSTool/src/obj/
+
+# Build artifacts
+/**.exe
+/**.dll
+/**.pdb
+/**/publish/
+
+# VS / Rider
+.vs/
+*.suo
+*.user
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db

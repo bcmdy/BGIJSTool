@@ -39,20 +39,71 @@ namespace BGIJSTool.Services
 
         /// <summary>
         /// 按模块步骤依次执行（bak → del → restore → copy 或自定义顺序）。
-        /// 废弃：直接调用 BackupFile / DeleteFile / RestoreFile / CopyFromDirFile。
+        /// 支持 paths 中使用通配符（*.ext）和目录（dir/）自动展开。
         /// </summary>
         public void ExecuteStep(Step step, ILogger logger)
         {
             foreach (var path in step.paths)
             {
-                switch (step.op)
+                IEnumerable<string> targets = ResolvePaths(path, step.op);
+                foreach (var resolved in targets)
                 {
-                    case "bak":     BackupFile(path, logger); break;
-                    case "del":     DeleteFile(path, logger); break;
-                    case "restore": RestoreFile(path, logger); break;
-                    case "copy":    CopyFromDirFile(path, logger); break;
-                    default:        logger.LogWarning($"未知操作类型: {step.op}，跳过 {path}"); break;
+                    switch (step.op)
+                    {
+                        case "bak":     BackupFile(resolved, logger); break;
+                        case "del":     DeleteFile(resolved, logger); break;
+                        case "restore": RestoreFile(resolved, logger); break;
+                        case "copy":    CopyFromDirFile(resolved, logger); break;
+                        default:        logger.LogWarning($"未知操作类型: {step.op}，跳过 {resolved}"); break;
+                    }
                 }
+            }
+        }
+
+        /// <summary>
+        /// 将 paths 中的单个条目解析为实际文件列表：
+        /// - 普通精确路径   → 返回自身
+        /// - 通配符 *.ext   → 在 BGI JsScript 目录下匹配所有匹配文件
+        /// - 目录（结尾为 / 或 \） → 递归遍历目录下所有文件
+        /// </summary>
+        private IEnumerable<string> ResolvePaths(string path, string op)
+        {
+            string trimmed = path.TrimEnd('/', '\\');
+
+            // 通配符匹配（含路径前缀，如 "subdir/*.json" 或 "*.json"）
+            if (path.Contains('*'))
+            {
+                var baseDir = Path.GetDirectoryName(GetFullPath(trimmed))
+                               ?? GetFullPath(string.Empty);
+                var pattern = Path.GetFileName(trimmed);
+                if (!Directory.Exists(baseDir))
+                    yield break;
+                foreach (var f in Directory.GetFiles(baseDir, pattern, SearchOption.TopDirectoryOnly))
+                    yield return MakeRelative(f);
+                yield break;
+            }
+
+            // 目录展开
+            bool isDir = path.EndsWith("/") || path.EndsWith("\\")
+                      || (Directory.Exists(GetFullPath(path)) && !File.Exists(GetFullPath(path)));
+            if (isDir)
+            {
+                var dirFull = GetFullPath(trimmed);
+                if (!Directory.Exists(dirFull))
+                    yield break;
+                foreach (var f in Directory.GetFiles(dirFull, "*", SearchOption.AllDirectories))
+                    yield return MakeRelative(f);
+                yield break;
+            }
+
+            // 普通精确文件
+            yield return path;
+
+            string MakeRelative(string fullPath)
+            {
+                string relative = fullPath.Substring(GetFullPath("").Length)
+                                  .Replace('\\', '/');
+                return relative.TrimStart('/');
             }
         }
 

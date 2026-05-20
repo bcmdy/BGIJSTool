@@ -109,7 +109,7 @@ namespace BGIJSTool
             var typeList = new System.Collections.Generic.List<string>();
             foreach (var step in module.Steps)
             {
-                typeList.Add(step.op switch { "bak" => "备份", "del" => "删除", "copy" => "还原", _ => step.op });
+                typeList.Add(step.op switch { "bak" => "备份", "del" => "删除", "restore" => "还原", _ => step.op });
             }
             _logger.LogInfo($"已选择模块: {module.name}  [{string.Join(" + ", typeList)}]");
 
@@ -117,7 +117,7 @@ namespace BGIJSTool
             int idx = 1;
             foreach (var step in module.Steps)
             {
-                string opLabel = step.op switch { "bak" => "备份", "del" => "删除", "copy" => "还原", _ => step.op };
+                string opLabel = step.op switch { "bak" => "备份", "del" => "删除", "restore" => "还原", _ => step.op };
                 foreach (var f in step.paths)
                     _logger.LogInfo($"  [{idx++} {opLabel}] {f}");
             }

@@ -10,6 +10,7 @@ namespace BGIJSTool.Services
         private readonly string _bgiPath;
         private readonly string _programPath;
         private readonly string _backupPath;
+        private readonly string _copyPath;
 
         public FileManager(string bgiPath, string programPath)
         {
@@ -17,6 +18,8 @@ namespace BGIJSTool.Services
             _programPath = programPath;
             _backupPath = Path.Combine(programPath, "backup");
             Directory.CreateDirectory(_backupPath);
+            _copyPath = Path.Combine(programPath, "copy");
+            Directory.CreateDirectory(_copyPath);
         }
 
         public string GetFullPath(string relativePath)
@@ -29,9 +32,14 @@ namespace BGIJSTool.Services
             return Path.Combine(_backupPath, relativePath);
         }
 
+        public string GetCopySourcePath(string relativePath)
+        {
+            return Path.Combine(_copyPath, relativePath);
+        }
+
         /// <summary>
-        /// 按模块步骤依次执行（bak → del → copy 或自定义顺序）。
-        /// 废弃：直接调用 BackupFile / DeleteFile / RestoreFile。
+        /// 按模块步骤依次执行（bak → del → restore → copy 或自定义顺序）。
+        /// 废弃：直接调用 BackupFile / DeleteFile / RestoreFile / CopyFromDirFile。
         /// </summary>
         public void ExecuteStep(Step step, ILogger logger)
         {
@@ -39,10 +47,11 @@ namespace BGIJSTool.Services
             {
                 switch (step.op)
                 {
-                    case "bak":  BackupFile(path, logger); break;
-                    case "del":  DeleteFile(path, logger); break;
+                    case "bak":     BackupFile(path, logger); break;
+                    case "del":     DeleteFile(path, logger); break;
                     case "restore": RestoreFile(path, logger); break;
-                    default:     logger.LogWarning($"未知操作类型: {step.op}，跳过 {path}"); break;
+                    case "copy":    CopyFromDirFile(path, logger); break;
+                    default:        logger.LogWarning($"未知操作类型: {step.op}，跳过 {path}"); break;
                 }
             }
         }
@@ -101,6 +110,31 @@ namespace BGIJSTool.Services
 
             File.Copy(backupPath, targetPath, true);
             logger.LogSuccess($"{backupPath} -> {targetPath}");
+        }
+
+        /// <summary>
+        /// 从程序目录下的 copy/ 文件夹复制文件到 BGI JsScript 目标路径。
+        /// copy/ 目录结构与 BGI JsScript 保持一致，按相对路径定位源文件。
+        /// </summary>
+        public void CopyFromDirFile(string relativePath, ILogger logger)
+        {
+            var sourcePath = GetCopySourcePath(relativePath);
+            var targetPath = GetFullPath(relativePath);
+
+            if (!File.Exists(sourcePath))
+            {
+                logger.LogWarning($"copy 目录下文件不存在，跳过: {sourcePath}");
+                return;
+            }
+
+            var dir = Path.GetDirectoryName(targetPath);
+            if (!Directory.Exists(dir))
+            {
+                Directory.CreateDirectory(dir!);
+            }
+
+            File.Copy(sourcePath, targetPath, true);
+            logger.LogSuccess($"{sourcePath} -> {targetPath}");
         }
     }
 }

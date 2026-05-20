@@ -29,6 +29,24 @@ namespace BGIJSTool.Services
             return Path.Combine(_backupPath, relativePath);
         }
 
+        /// <summary>
+        /// 按模块步骤依次执行（bak → del → copy 或自定义顺序）。
+        /// 废弃：直接调用 BackupFile / DeleteFile / RestoreFile。
+        /// </summary>
+        public void ExecuteStep(Step step, ILogger logger)
+        {
+            foreach (var path in step.paths)
+            {
+                switch (step.op)
+                {
+                    case "bak":  BackupFile(path, logger); break;
+                    case "del":  DeleteFile(path, logger); break;
+                    case "copy": RestoreFile(path, logger); break;
+                    default:     logger.LogWarning($"未知操作类型: {step.op}，跳过 {path}"); break;
+                }
+            }
+        }
+
         public void BackupFile(string relativePath, ILogger logger)
         {
             var sourcePath = GetFullPath(relativePath);

@@ -92,7 +92,7 @@ namespace BGIJSTool
         private static readonly Module PlaceholderModule = new()
         {
             name = "<-请选择需执行的模块->",
-            files = new()
+            Steps = new()
         };
 
         private void ModuleCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -105,24 +105,22 @@ namespace BGIJSTool
 
             ExecuteBtn.IsEnabled = true;
 
-            // 列出本模块将要执行的操作
+            // 列出本模块将要执行的操作（按 Steps 顺序）
             var typeList = new System.Collections.Generic.List<string>();
-            if (module.files?.bak is { Count: > 0 }) typeList.Add("备份");
-            if (module.files?.del is { Count: > 0 }) typeList.Add("删除");
-            if (module.files?.copy is { Count: > 0 }) typeList.Add("还原");
+            foreach (var step in module.Steps)
+            {
+                typeList.Add(step.op switch { "bak" => "备份", "del" => "删除", "copy" => "还原", _ => step.op });
+            }
             _logger.LogInfo($"已选择模块: {module.name}  [{string.Join(" + ", typeList)}]");
 
-            // 列出文件
+            // 列出每个步骤的文件
             int idx = 1;
-            if (module.files?.bak is { Count: > 0 })
-                foreach (var f in module.files.bak)
-                    _logger.LogInfo($"  [{idx++} 备份] {f}");
-            if (module.files?.del is { Count: > 0 })
-                foreach (var f in module.files.del)
-                    _logger.LogInfo($"  [{idx++} 删除] {f}");
-            if (module.files?.copy is { Count: > 0 })
-                foreach (var f in module.files.copy)
-                    _logger.LogInfo($"  [{idx++} 还原] {f}");
+            foreach (var step in module.Steps)
+            {
+                string opLabel = step.op switch { "bak" => "备份", "del" => "删除", "copy" => "还原", _ => step.op };
+                foreach (var f in step.paths)
+                    _logger.LogInfo($"  [{idx++} {opLabel}] {f}");
+            }
         }
 
         /// <summary>用占位项 + 实际模块列表填充 ComboBox，默认选中占位</summary>
@@ -155,35 +153,13 @@ namespace BGIJSTool
 
                 int totalFiles = 0;
 
-                // Backup
-                if (module.files?.bak != null)
+                // 按 Steps 顺序逐步骤执行
+                foreach (var step in module.Steps)
                 {
-                    foreach (var file in module.files.bak)
-                    {
-                        _fileManager.BackupFile(file, _logger);
-                        totalFiles++;
-                    }
+                    totalFiles += step.paths.Count;
+                    _fileManager.ExecuteStep(step, _logger);
                 }
 
-                // Delete
-                if (module.files?.del != null)
-                {
-                    foreach (var file in module.files.del)
-                    {
-                        _fileManager.DeleteFile(file, _logger);
-                        totalFiles++;
-                    }
-                }
-
-                // Restore
-                if (module.files?.copy != null)
-                {
-                    foreach (var file in module.files.copy)
-                    {
-                        _fileManager.RestoreFile(file, _logger);
-                        totalFiles++;
-                    }
-                }
 
                 _logger.LogInfo($"模块执行完成，共处理 {totalFiles} 个文件");
                 StatusText.Text = "执行完成";

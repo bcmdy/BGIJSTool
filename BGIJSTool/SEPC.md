@@ -23,13 +23,12 @@ BetterGI 脚本使用者，需要对脚本文件进行批量维护操作。
   - `BGIpath`（字符串，必填）：BetterGI 的安装根目录，如 `E:\YS\BetterGI`。
   - `modules`（数组，原 `md`）：功能模块列表，每个模块包含：
     - `name`（字符串）：功能名称，如 `"修复稻妻大炮bug【删除】"`。
-    - `files`（对象）：操作文件映射，键为操作类型，值为文件路径数组。支持的操作键：
-      - `"bak"`：需要备份的文件列表
-      - `"del"`：需要删除的文件列表
-      - `"copy"`：需要还原的文件列表（从 backup 目录还原到目标位置）
-    - `files` 中各键对应的文件路径为**相对路径**，相对于 `BGIpath\User\JsScript\`。
+    - `files`（数组，有序）：按执行顺序排列的步骤列表，每个步骤包含：
+      - `op`（字符串）：操作类型，`"bak"` = 备份，`"del"` = 删除，`"copy"` = 还原（从 backup 目录还原到目标位置）
+      - `paths`（字符串数组）：当前操作对应的文件相对路径列表
+    - 所有路径均为**相对路径**，相对于 `BGIpath\User\JsScript\`。
 
-> **命名规范说明**：原 `md` 节点更名为 `modules`，语义更清晰，表示"功能模块列表"。`files` 对象以操作类型为键，直观表达"某操作作用于哪些文件"。
+> **命名规范说明**：`files` 从对象映射改为有序数组，步骤的排列顺序即为执行顺序，用户可通过调整数组元素的顺序精细控制执行流程。
 
 #### 2.1.2 路径解析
 - **FR-003**: 文件的完整路径拼接规则：
@@ -75,8 +74,8 @@ BetterGI 脚本使用者，需要对脚本文件进行批量维护操作。
 - **FR-019**: 若 `files` 中不存在 `"copy"` 键，则跳过还原步骤。
 
 #### 2.1.6 执行顺序
-- **FR-020**: 单个模块的执行顺序固定为：**备份(bak) → 删除(del) → 还原(copy)**。
-- **FR-021**: 各操作独立处理各自的 `files` 列表，互不影响。即使同一模块中 `bak` 和 `del` 包含相同文件，也按各自列表独立执行。
+- **FR-020**: 单个模块的执行顺序由 `files` 数组中元素的排列顺序决定，从前往后依次执行。
+- **FR-021**: 每一步骤独立处理，互不影响。即使多个步骤操作同一文件，也按 `files` 数组中的顺序逐步骤执行。
 
 ---
 
@@ -166,13 +165,13 @@ BetterGI 脚本使用者，需要对脚本文件进行批量维护操作。
 | `BGIpath` | string | 是 | BetterGI 安装根目录，如 `E:\YS\BetterGI` |
 | `modules` | array | 是 | 功能模块列表（原 `md`） |
 | `modules[].name` | string | 是 | 模块名称，用于 UI 下拉列表显示 |
-| `modules[].files` | object | 是 | 操作文件映射对象 |
-| `modules[].files.bak` | string[] | 否 | 需备份的文件相对路径列表 |
-| `modules[].files.del` | string[] | 否 | 需删除的文件相对路径列表 |
-| `modules[].files.copy` | string[] | 否 | 需还原的文件相对路径列表 |
+| `modules[].files` | array | 是 | 有序步骤数组，排列顺序即为执行顺序 |
+| `modules[].files[].op` | string | 是 | 操作类型：`"bak"` 备份 / `"del"` 删除 / `"copy"` 还原 |
+| `modules[].files[].paths` | string[] | 是 | 当前操作对应的文件相对路径列表 |
 
 ### 4.3 路径规则
-- `files` 中的路径均为**相对路径**，相对于 `{BGIpath}\User\JsScript\`
+- `paths` 中的路径均为**相对路径**，相对于 `{BGIpath}\User\JsScript\`
+- 路径分隔符使用双反斜杠 `\\`（JSON 转义）
 - 路径分隔符使用双反斜杠 `\\`（JSON 转义）
 
 ### 4.4 配置文件示例
@@ -183,31 +182,40 @@ BetterGI 脚本使用者，需要对脚本文件进行批量维护操作。
     "modules": [
         {
             "name": "修复稻妻大炮bug【删除】",
-            "files": {
-                "bak": [
-                    "AAA-Artifacts-Bulk-Supply\\assets\\ArtifactsPath\\额外\\所有额外\\准备\\000【复位程序】稻妻踏鞴砂大炮点.json",
-                    "AAA-Artifacts-Bulk-Supply\\assets\\ArtifactsPath\\额外\\所有额外\\准备\\001【激活程序】稻妻大炮1.json",
-                    "AAA-Artifacts-Bulk-Supply\\assets\\ArtifactsPath\\额外\\所有额外\\准备\\001【激活程序】稻妻大炮2.json",
-                    "ArtifactsGroupPurchasing\\assets\\ArtifactsPath\\额外\\前执行\\99【复位程序】稻妻踏鞴砂大炮点.json"
-                ],
-                "del": [
-                    "AAA-Artifacts-Bulk-Supply\\assets\\ArtifactsPath\\额外\\所有额外\\准备\\000【复位程序】稻妻踏鞴砂大炮点.json",
-                    "AAA-Artifacts-Bulk-Supply\\assets\\ArtifactsPath\\额外\\所有额外\\准备\\001【激活程序】稻妻大炮1.json",
-                    "AAA-Artifacts-Bulk-Supply\\assets\\ArtifactsPath\\额外\\所有额外\\准备\\001【激活程序】稻妻大炮2.json",
-                    "ArtifactsGroupPurchasing\\assets\\ArtifactsPath\\额外\\前执行\\99【复位程序】稻妻踏鞴砂大炮点.json"
-                ]
-            }
+            "files": [
+                {
+                    "op": "bak",
+                    "paths": [
+                        "AAA-Artifacts-Bulk-Supply\\assets\\ArtifactsPath\\额外\\所有额外\\准备\\000【复位程序】稻妻踏鞴砂大炮点.json",
+                        "AAA-Artifacts-Bulk-Supply\\assets\\ArtifactsPath\\额外\\所有额外\\准备\\001【激活程序】稻妻大炮1.json",
+                        "AAA-Artifacts-Bulk-Supply\\assets\\ArtifactsPath\\额外\\所有额外\\准备\\001【激活程序】稻妻大炮2.json",
+                        "ArtifactsGroupPurchasing\\assets\\ArtifactsPath\\额外\\前执行\\99【复位程序】稻妻踏鞴砂大炮点.json"
+                    ]
+                },
+                {
+                    "op": "del",
+                    "paths": [
+                        "AAA-Artifacts-Bulk-Supply\\assets\\ArtifactsPath\\额外\\所有额外\\准备\\000【复位程序】稻妻踏鞴砂大炮点.json",
+                        "AAA-Artifacts-Bulk-Supply\\assets\\ArtifactsPath\\额外\\所有额外\\准备\\001【激活程序】稻妻大炮1.json",
+                        "AAA-Artifacts-Bulk-Supply\\assets\\ArtifactsPath\\额外\\所有额外\\准备\\001【激活程序】稻妻大炮2.json",
+                        "ArtifactsGroupPurchasing\\assets\\ArtifactsPath\\额外\\前执行\\99【复位程序】稻妻踏鞴砂大炮点.json"
+                    ]
+                }
+            ]
         },
         {
             "name": "修复稻妻大炮bug【还原】",
-            "files": {
-                "copy": [
-                    "AAA-Artifacts-Bulk-Supply\\assets\\ArtifactsPath\\额外\\所有额外\\准备\\000【复位程序】稻妻踏鞴砂大炮点.json",
-                    "AAA-Artifacts-Bulk-Supply\\assets\\ArtifactsPath\\额外\\所有额外\\准备\\001【激活程序】稻妻大炮1.json",
-                    "AAA-Artifacts-Bulk-Supply\\assets\\ArtifactsPath\\额外\\所有额外\\准备\\001【激活程序】稻妻大炮2.json",
-                    "ArtifactsGroupPurchasing\\assets\\ArtifactsPath\\额外\\前执行\\99【复位程序】稻妻踏鞴砂大炮点.json"
-                ]
-            }
+            "files": [
+                {
+                    "op": "copy",
+                    "paths": [
+                        "AAA-Artifacts-Bulk-Supply\\assets\\ArtifactsPath\\额外\\所有额外\\准备\\000【复位程序】稻妻踏鞴砂大炮点.json",
+                        "AAA-Artifacts-Bulk-Supply\\assets\\ArtifactsPath\\额外\\所有额外\\准备\\001【激活程序】稻妻大炮1.json",
+                        "AAA-Artifacts-Bulk-Supply\\assets\\ArtifactsPath\\额外\\所有额外\\准备\\001【激活程序】稻妻大炮2.json",
+                        "ArtifactsGroupPurchasing\\assets\\ArtifactsPath\\额外\\前执行\\99【复位程序】稻妻踏鞴砂大炮点.json"
+                    ]
+                }
+            ]
         }
     ]
 }
@@ -277,3 +285,4 @@ BetterGI 脚本使用者，需要对脚本文件进行批量维护操作。
 | v1.0 | 2026-05-20 | - | 初始版本，method 数组结构 |
 | v1.1 | 2026-05-20 | - | 重构配置结构：`md` → `modules`，`method` 数组 → `files` 对象映射，增加操作类型标签显示 |
 | v1.2 | 2026-05-20 | - | 移除删除前自动备份功能；路径显示改为 BetterGI.exe 完整路径；新增"浏览…"按钮；ComboBox 默认改为占位提示项；选择模块后日志中输出执行内容；修复 UI 遮挡问题；修复日志 RichTextBox Span 标签透出问题；日志框格式优化 |
+| v1.3 | 2026-05-20 | - | `files` 从对象格式（`bak/del/copy` 固定顺序）改为有序步骤数组 `[{op, paths}]`，支持用户自定义执行顺序；Step 模型 + `ExecuteStep` 统一入口；旧格式自动兼容解析 |

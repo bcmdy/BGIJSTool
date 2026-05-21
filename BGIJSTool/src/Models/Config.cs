@@ -41,13 +41,6 @@ namespace BGIJSTool.Models
         /// <summary>当前操作对应的文件相对路径列表</summary>
         [JsonPropertyName("paths")]
         public List<string> paths { get; set; } = new();
-
-        /// <summary>
-        /// bak 操作时指定输出 zip 压缩包名称（不含 .zip 扩展名）。
-        /// 为空时使用模块 modules.name 作为默认名称；有值时按此名称打包。
-        /// </summary>
-        [JsonPropertyName("zipName")]
-        public string? ZipName { get; set; }
     }
 
     /// <summary>

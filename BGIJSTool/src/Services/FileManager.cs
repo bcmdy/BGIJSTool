@@ -205,15 +205,14 @@ public class FileManager
 
     public void ExecuteCopy(Step step, ILogger logger)
     {
-        var zipName = step.ZipName ?? string.Empty;
-        var matched = FindCopyZip(zipName);
+        // copy 的 paths[0] = zip 包名（如 "狗粮批发线路收尾改茶叶【AB都改】.zip"）
+        var zipQuery = step.paths.Count > 0 ? step.paths[0] : "*.zip";
+        var matched  = FindCopyZip(zipQuery);
         if (matched.Count == 0)
         {
-            logger.LogWarning($"copy/ 目录下未找到匹配的 zip: {zipName}*.zip，跳过本步骤");
+            logger.LogWarning($"copy/ 目录下未找到匹配的 zip: {zipQuery}，跳过本步骤");
             return;
         }
-        if (matched.Count > 1)
-            logger.LogWarning($"copy/ 匹配到 {matched.Count} 个 zip，取第一个: {Path.GetFileName(matched[0])}");
 
         var zipFile = matched[0];
         logger.LogInfo($"解压 copy 压缩包: {Path.GetFileName(zipFile)}");
@@ -233,16 +232,23 @@ public class FileManager
         }
     }
 
-    private List<string> FindCopyZip(string zipName)
+    private List<string> FindCopyZip(string query)
     {
-        var list = new List<string>();
-        if (!string.IsNullOrEmpty(zipName))
-        {
-            list.AddRange(Directory.GetFiles(_copyPath, $"{zipName}*.zip", SearchOption.TopDirectoryOnly));
-        }
-        if (list.Count == 0)
-            list.AddRange(Directory.GetFiles(_copyPath, "*.zip", SearchOption.TopDirectoryOnly));
-        return list;
+        // query 可以是文件名（精确）、*.zip（通配）或空（fallback 全部）
+        if (string.IsNullOrWhiteSpace(query))
+            return Directory.GetFiles(_copyPath, "*.zip", SearchOption.TopDirectoryOnly).ToList();
+
+        // 精确匹配
+        var full = Path.Combine(_copyPath, query);
+        if (File.Exists(full)) return new List<string> { full };
+
+        // 通配符匹配 *.zip
+        if (query.Contains('*'))
+            return Directory.GetFiles(_copyPath, query, SearchOption.TopDirectoryOnly).ToList();
+
+        // 前缀匹配 *.zip
+        return Directory.GetFiles(_copyPath, $"{query}*.zip", SearchOption.TopDirectoryOnly)
+                        .ToList();
     }
 
     // 旧版兼容
@@ -323,16 +329,18 @@ public class FileManager
         yield return path;
     }
 
-    /// <summary>将 JsScript 下绝对路径转为相对路径（去掉 "JsScript/" 前缀）</summary>
+    /// <summary>
+    /// 将绝对路径转为 JsScript 根目录下的相对路径；
+    /// 用完整前缀（含尾部 \）匹配，零字符偏移误差，中文路径不截断。
+    /// </summary>
     private string MakeRel(string fullPath)
     {
-        // GetFullPath("") = D:\YS\BetterGI-lcb\User\JsScript ( trailing slash trimmed via Path.TrimEnd )
-        var baseLen = GetFullPath("").TrimEnd(Path.DirectorySeparatorChar).Length;
-        if (!fullPath.StartsWith(GetFullPath(""), StringComparison.OrdinalIgnoreCase))
+        // GetFullPath("") = E:\...\BetterGI\User\JsScript  末尾不加 \；
+        // 构造带尾部分隔符的前缀，IndexOf 精确找到前缀结束位置
+        var prefix = GetFullPath("") + "\\";   // E:\...\JsScript\
+        if (!fullPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
             return fullPath;
-        var rel = fullPath.Substring(baseLen + 1)
-                            .Replace('\\', '/');
-        return rel.TrimStart('/');
+        return fullPath.Substring(prefix.Length).Replace('\\', '/');
     }
 
     private int CopyTreeOverwrite(string srcDir, string dstDir, ILogger? logger = null)

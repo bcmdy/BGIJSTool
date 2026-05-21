@@ -1,6 +1,7 @@
 using System.IO;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Collections.Generic;
 using BGIJSTool.Models;
 
@@ -234,8 +235,6 @@ public class FileManager
         if (!string.IsNullOrEmpty(zipName))
         {
             list.AddRange(Directory.GetFiles(_copyPath, $"{zipName}*.zip", SearchOption.TopDirectoryOnly));
-            if (list.Count == 0)
-                list.AddRange(Directory.GetFiles(_copyPath, zipName, SearchOption.TopDirectoryOnly));
         }
         if (list.Count == 0)
             list.AddRange(Directory.GetFiles(_copyPath, "*.zip", SearchOption.TopDirectoryOnly));

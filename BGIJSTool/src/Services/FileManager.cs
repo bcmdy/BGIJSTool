@@ -1,4 +1,5 @@
 using System.IO;
+using System.IO.Compression;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
@@ -137,7 +138,8 @@ public class FileManager
                 Encoding.UTF8);
         }
 
-        ZipFile.CreateFromDirectory(tmpDir, zipFull, CompressionLevel.Optimal, false);
+        System.IO.Compression.ZipFile.CreateFromDirectory(tmpDir, zipFull,
+            System.IO.Compression.CompressionLevel.Optimal, false);
         try { Directory.Delete(tmpDir, true); } catch { }
 
         if (baked.Count > 0)
@@ -172,7 +174,7 @@ public class FileManager
 
         var tmpDir = Path.Combine(_backupPath, $"_restore_tmp_{Guid.NewGuid():N}");
         Directory.CreateDirectory(tmpDir);
-        ZipFile.ExtractToDirectory(zipFull, tmpDir);
+        System.IO.Compression.ZipFile.ExtractToDirectory(zipFull, tmpDir);
 
         var manifestFile = Path.Combine(tmpDir, "_restore_manifest.json");
         if (File.Exists(manifestFile))
@@ -272,7 +274,7 @@ public class FileManager
         int copied = 0;
 
         using var fs = File.OpenRead(zipFile);
-        using var zf = new ZipFile(fs);
+        using var zf = new ICSharpCode.SharpZipLib.Zip.ZipFile(fs);
 
         // 先尝试用 UTF-8 读取所有条目，检测是否有乱码
         var entries = new List<(ZipEntry Entry, string DecodedName, bool IsValid)>();
@@ -333,7 +335,7 @@ public class FileManager
         try
         {
             // 关键步骤：把 UTF-8 乱码字符串编码回字节（这些字节就是原始 GBK 字节）
-            var bytes = E.UTF8.GetBytes(utf8DecodedGarbage);
+            var bytes = Encoding.UTF8.GetBytes(utf8DecodedGarbage);
             var fixedName = GBK.GetString(bytes);
 
             if (!ContainsMojibake(fixedName))
@@ -344,7 +346,7 @@ public class FileManager
         try
         {
             // 再试 GB18030
-            var bytes = E.UTF8.GetBytes(utf8DecodedGarbage);
+            var bytes = Encoding.UTF8.GetBytes(utf8DecodedGarbage);
             var fixedName = GB18030.GetString(bytes);
 
             if (!ContainsMojibake(fixedName))

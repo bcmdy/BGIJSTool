@@ -290,7 +290,7 @@ namespace BGIJSTool
         private void ExecuteCopy(Step step, ILogger logger)
         {
             foreach (var p in step.paths)
-                _fileManager.ExecuteCopy(new Step { paths = new() { p }, ZipName = step.ZipName }, logger);
+                _fileManager.ExecuteCopy(new Step { paths = new() { p } }, logger);
         }
 
         /// <summary>解析 BGI JsScript 路径（支持通配符、目录）</summary>

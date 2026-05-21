@@ -181,31 +181,64 @@ public class FileManager
         {
             try
             {
-                var manifest = JsonSerializer.Deserialize<RestoreManifest>(File.ReadAllText(manifestFile));
-                if (manifest != null && manifest.RestoreEntries.Count > 0)
+                var manifest = JsonSerializer.Deserialize<RestoreManifest>(
+                    File.ReadAllText(manifestFile));
+
+                if (manifest?.RestoreEntries is { Count: > 0 } entries)
                 {
                     logger.LogInfo($"还原清单: {manifest.ModuleName}  (创建于 {manifest.CreatedAt})");
-                    foreach (var entry in manifest.RestoreEntries)
+                    foreach (var entry in entries)
                     {
                         if (entry.Op.StartsWith("bak+del"))
+                        {
                             foreach (var rp in entry.SrcPaths)
-                                RestoreFile(rp, logger);
+                            {
+                                // 直接从备份 zip 临时目录复制，不走单文件 backup/ 路径
+                                var src = Path.Combine(tmpDir, rp.Replace('/', Path.DirectorySeparatorChar));
+                                var dst = GetFullPath(rp);
+                                if (!File.Exists(src))
+                                {
+                                    logger.LogError($"备份文件在 zip 中不存在: {rp}");
+                                    continue;
+                                }
+                                Directory.CreateDirectory(Path.GetDirectoryName(dst)!);
+                                File.Copy(src, dst, true);
+                                logger.LogSuccess($"还原: {rp} -> {dst}");
+                            }
+                        }
                     }
                     try { Directory.Delete(tmpDir, true); } catch { }
                     return;
                 }
             }
-            catch { /* fallback */ }
+            catch (Exception ex)
+            {
+                logger.LogWarning($"读取还原清单失败: {ex.Message}，将尝试全量还原");
+            }
         }
 
         // Fallback: 还原 zip 内所有非 manifest 文件
         foreach (var f in Directory.GetFiles(tmpDir, "*", SearchOption.AllDirectories)
             .Where(f => !f.Contains("_restore_manifest.json", StringComparison.OrdinalIgnoreCase)))
         {
-            var rel = f.Substring(tmpDir.Length).Replace('\\', '/').TrimStart('/');
-            RestoreFile(rel, logger);
+            var rel = MakeRelFromRoot(f, tmpDir);
+            var dst = GetFullPath(rel);
+            Directory.CreateDirectory(Path.GetDirectoryName(dst)!);
+            File.Copy(f, dst, true);
+            logger.LogSuccess($"还原: {rel} -> {dst}");
         }
         try { Directory.Delete(tmpDir, true); } catch { }
+    }
+
+    /// <summary>
+    /// 基于指定根目录计算相对路径（替代 Substring 方案，避免路径分隔符问题）。
+    /// </summary>
+    private static string MakeRelFromRoot(string fullPath, string rootDir)
+    {
+        var prefix = rootDir.TrimEnd('\\') + "\\";
+        if (!fullPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            return fullPath;
+        return fullPath.Substring(prefix.Length).Replace('\\', '/');
     }
 
     // =========================================================================
@@ -226,60 +259,99 @@ public class FileManager
         var zipFile = matched[0];
         logger.LogInfo($"解压 copy 压缩包: {Path.GetFileName(zipFile)}");
 
-        var tmpDir = Path.Combine(_backupPath, $"_copy_extract_{Guid.NewGuid():N}");
-        Directory.CreateDirectory(tmpDir);
-
         try
         {
-            System.IO.Compression.ZipFile.ExtractToDirectory(zipFile, tmpDir);
-
-            // 用 GBK 再次解码解压后的文件名（处理 GBK 编码的 zip 产生的乱码）
-            FixDirEncoding(tmpDir, Encoding.GetEncoding("GB2312"));
-
-            int copied = CopyTreeOverwrite(tmpDir, GetFullPath(""), logger);
+            int copied = ExtractZipWithEncoding(zipFile, GetFullPath(""), logger);
             logger.LogInfo($"copy 完成，共还原 {copied} 个文件");
         }
-        finally
+        catch (Exception ex)
         {
-            try { Directory.Delete(tmpDir, true); } catch { }
+            logger.LogError($"解压失败: {ex.Message}");
+            throw;
         }
     }
 
     /// <summary>
-    /// 修正 GBK 编码 zip 解压后产生的乱码文件名：将解压出的乱码文件夹名用 GBK 重新解码，
-    /// 还原为正确的中文名。
+    /// 用 ZipArchive 逐条读取，通过启发式检测自动识别 GBK/UTF-8 编码。
+    /// zip 条目名本身无法存储 ANSI/GBK 标志（除非用非标准 APPNote 字段），
+    /// 这里用 "UTF-8 解码结果含乱码 → 用 GBK 重解码" 策略处理。
     /// </summary>
-    private static void FixDirEncoding(string rootDir, Encoding gbk)
+    private int ExtractZipWithEncoding(string zipFile, string destDir, ILogger logger)
     {
-        var dirs = Directory.GetDirectories(rootDir, "*", SearchOption.TopDirectoryOnly);
-        foreach (var dir in dirs)
-        {
-            // 下一层继续递归
-            FixDirEncoding(dir, gbk);
+        int copied = 0;
+        var gb18030 = E.GetEncoding("GB18030"); // 兼容 GBK / GB2312
+        var gbk     = E.GetEncoding("GBK");
 
-            // 检查目录名是否含乱码
-            var dirName = Path.GetFileName(dir);
-            if (dirName.Contains('�'))
-            {
-                // 用 UTF8 bytes 来"逆推"GBK 原始字节，再用 GBK 解码
-                var bytes = Encoding.UTF8.GetBytes(dirName);
-                try
-                {
-                    var fixedName = gbk.GetString(bytes);
-                    if (!fixedName.Contains('�'))
-                    {
-                        var target = Path.Combine(rootDir, fixedName);
-                        if (!Directory.Exists(target))
-                        {
-                            Directory.Move(dir, target);
-                            // 乱码目录修正（GBK重解码失败则跳过）
-                            // dirName -> fixedName, no log available in static helper
-                        }
-                    }
-                }
-                catch { /* invalid bytes, skip */ }
-            }
+        using var fs = File.OpenRead(zipFile);
+        using var archive = new ZipArchive(fs, ZipArchiveMode.Read);
+
+        foreach (var entry in archive.Entries)
+        {
+            // 跳过纯目录条目（FullName 以 / 结尾且 Name 为空）
+            if (entry.FullName.EndsWith("/") && string.IsNullOrEmpty(entry.Name))
+                continue;
+
+            var decodedName = AutoDecodeZipName(entry.FullName, gb18030, gbk);
+            var targetPath  = Path.Combine(destDir, decodedName);
+            var targetDir   = Path.GetDirectoryName(targetPath)!;
+
+            Directory.CreateDirectory(targetDir);
+            entry.ExtractToFile(targetPath, true);
+            copied++;
+            logger.LogSuccess($"copy 解压覆盖: {decodedName} -> {targetPath}");
         }
+
+        return copied;
+    }
+
+    /// <summary>
+    /// 启发式检测：先检查 UTF-8 解码是否已正确；若含乱码则逆推原始字节
+    /// 并用 GB18030 / GBK 重解码，取第一个无乱码结果。
+    /// </summary>
+    private static string AutoDecodeZipName(string utf8Name, Encoding gb18030, Encoding gbk)
+    {
+        if (!ContainsMojibake(utf8Name))
+            return utf8Name.Replace('/', '\\');
+
+        // 逆推：用 UTF-8 字节序列尝试用 GB18030 解码
+        try
+        {
+            var bytes    = E.UTF8.GetBytes(utf8Name);
+            var gbResult = gb18030.GetString(bytes);
+            if (!ContainsMojibake(gbResult))
+                return gbResult.Replace('/', '\\');
+        }
+        catch { }
+
+        // 再试 GBK
+        try
+        {
+            var bytes    = E.UTF8.GetBytes(utf8Name);
+            var gbResult = gbk.GetString(bytes);
+            if (!ContainsMojibake(gbResult))
+                return gbResult.Replace('/', '\\');
+        }
+        catch { }
+
+        // 都失败了，返回原始 UTF-8 解码结果
+        return utf8Name.Replace('/', '\\');
+    }
+
+    /// <summary>
+    /// 检查字符串是否含乱码特征（替换字符 "、锟斤拷 类、不可见控制字符）。
+    /// </summary>
+    private static bool ContainsMojibake(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return false;
+        if (text.Contains('�')) return true;           // Unicode 替换字符
+        if (text.Contains('锟')) return true;               // 锟斤拷 / 锟芥补
+
+        foreach (var c in text)
+        {
+            if (c < 32 && c is not ('\r' or '\n' or '\t'))
+                return true;
+        }
+        return false;
     }
 
     private List<string> FindCopyZip(string query)

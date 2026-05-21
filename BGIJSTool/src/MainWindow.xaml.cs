@@ -32,6 +32,7 @@ namespace BGIJSTool
 
                 var modules = _configService.GetModules();
                 PopulateModuleCombo(modules);
+                PopulateRestoreCombo();
 
                 EnableControls(pathValid);
                 if (pathValid)
@@ -86,6 +87,7 @@ namespace BGIJSTool
         private void EnableControls(bool enabled)
         {
             ExecuteBtn.IsEnabled = enabled;
+            ExecuteRestoreBtn.IsEnabled = enabled;
         }
 
         /// <summary>占位项，作为 ComboBox 提示用户的第一项</summary>
@@ -142,24 +144,50 @@ namespace BGIJSTool
         {
             if (ModuleCombo.SelectedItem is not Module module) return;
 
-            StatusText.Text = "执行中...";
+            StatusText.Text = "执行中…";
             ExecuteBtn.IsEnabled = false;
+            ExecuteRestoreBtn.IsEnabled = false;
 
             try
             {
                 _fileManager = new FileManager(_configService.GetBGIPath(), _programPath);
-
                 _logger.LogInfo($"开始执行模块: {module.name}");
 
+                var moduleSteps = module.Steps.ToList();
                 int totalFiles = 0;
 
-                // 按 Steps 顺序逐步骤执行
-                foreach (var step in module.Steps)
+                // del / restore / copy 即时执行；bak 特殊处理
+                foreach (var step in moduleSteps)
                 {
                     totalFiles += step.paths.Count;
-                    _fileManager.ExecuteStep(step, _logger);
+                    switch (step.op)
+                    {
+                        case OpType.bak:     break;
+                        case OpType.del:     ExecuteDel(step, _logger);       break;
+                        case OpType.restore: ExecuteRestore(step, _logger);   break;
+                        case OpType.copy:    ExecuteCopy(step, _logger);       break;
+                    }
                 }
 
+                // bak 收集所有 bak+del 路径，统一打包 zip
+                var  bakPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                bool hasBak   = false;
+                foreach (var s in moduleSteps)
+                {
+                    if (s.op == OpType.bak) hasBak = true;
+                    if (s.op is OpType.bak or OpType.del)
+                        foreach (var p in s.paths) bakPaths.Add(p);
+                }
+
+                if (hasBak && bakPaths.Count > 0)
+                {
+                    _logger.LogInfo($"模块备份: {module.name}，共 {bakPaths.Count} 条路径");
+                    var stepsForZip = module.Steps.Select(s => new Step { op = s.op, paths = s.paths.ToList() }).ToList();
+                    _fileManager.CreateBakZip(bakPaths.ToList(), _ => module.name, _logger);
+                }
+
+                // 刷新还原下拉框
+                PopulateRestoreCombo();
 
                 _logger.LogInfo($"模块执行完成，共处理 {totalFiles} 个文件");
                 StatusText.Text = "执行完成";
@@ -172,7 +200,133 @@ namespace BGIJSTool
             finally
             {
                 ExecuteBtn.IsEnabled = true;
+                ExecuteRestoreBtn.IsEnabled = true;
             }
+        }
+
+        // ── 还原 ───────────────────────────────────────────────────────────
+
+        private void ExecuteRestoreBtn_Click(object sender, RoutedEventArgs e)
+        {
+            if (RestoreCombo.SelectedItem is not string zipFileName
+                || string.IsNullOrEmpty(zipFileName))
+            {
+                _logger.LogWarning("请先选择一个备份压缩包");
+                return;
+            }
+
+            StatusText.Text = "还原中…";
+            ExecuteBtn.IsEnabled = false;
+            ExecuteRestoreBtn.IsEnabled = false;
+
+            try
+            {
+                _fileManager = new FileManager(_configService.GetBGIPath(), _programPath);
+                _logger.LogInfo($"开始还原: {zipFileName}");
+                _fileManager.ExecuteRestoreFromZip(zipFileName, _logger);
+                StatusText.Text = "还原完成";
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"还原失败: {ex.Message}");
+                StatusText.Text = "还原失败";
+            }
+            finally
+            {
+                ExecuteBtn.IsEnabled = true;
+                ExecuteRestoreBtn.IsEnabled = true;
+                PopulateRestoreCombo();
+            }
+        }
+
+        // ── 还原 ComboBox ──────────────────────────────────────────────────
+
+        private const string RestorePlaceholder = "（无备份）";
+
+        private void PopulateRestoreCombo()
+        {
+            var backupDir = Path.Combine(_programPath, "backup");
+            if (!Directory.Exists(backupDir))
+            {
+                RestoreCombo.Items.Clear();
+                RestoreCombo.Text = RestorePlaceholder;
+                RestoreCombo.IsEnabled = false;
+                return;
+            }
+
+            var zips = Directory.GetFiles(backupDir, "*.zip", SearchOption.TopDirectoryOnly);
+            Array.Sort(zips);
+
+            RestoreCombo.IsEditable = false;
+            RestoreCombo.IsEnabled = zips.Length > 0;
+            RestoreCombo.Items.Clear();
+
+            if (zips.Length == 0)
+                RestoreCombo.Text = RestorePlaceholder;
+            else
+            {
+                foreach (var f in zips)
+                    RestoreCombo.Items.Add(Path.GetFileName(f));
+                RestoreCombo.SelectedIndex = 0;
+            }
+        }
+
+        // ── del / restore / copy 执行辅助 ──────────────────────────────────
+
+        private void ExecuteDel(Step step, ILogger logger)
+        {
+            foreach (var p in step.paths)
+                foreach (var resolved in ResolveBgi(p))
+                    _fileManager.DeleteFile(resolved, logger);
+        }
+
+        private void ExecuteRestore(Step step, ILogger logger)
+        {
+            foreach (var p in step.paths)
+                foreach (var resolved in ResolveBgi(p))
+                    _fileManager.RestoreFile(resolved, logger);
+        }
+
+        private void ExecuteCopy(Step step, ILogger logger)
+        {
+            foreach (var p in step.paths)
+                _fileManager.ExecuteCopy(new Step { paths = new() { p }, ZipName = step.ZipName }, logger);
+        }
+
+        /// <summary>解析 BGI JsScript 路径（支持通配符、目录）</summary>
+        private IEnumerable<string> ResolveBgi(string path)
+        {
+            var trimmed = path.TrimEnd('/', '\\');
+
+            if (path.Contains('*'))
+            {
+                var baseDir = Path.GetDirectoryName(_fileManager.GetFullPath(trimmed))
+                                ?? _fileManager.GetFullPath("");
+                var pattern = Path.GetFileName(trimmed);
+                if (!Directory.Exists(baseDir)) yield break;
+                foreach (var f in Directory.GetFiles(baseDir, pattern, SearchOption.TopDirectoryOnly))
+                    yield return MakeRel(f);
+                yield break;
+            }
+
+            if (path.EndsWith("/") || path.EndsWith("\\")
+                || (Directory.Exists(_fileManager.GetFullPath(path))
+                    && !File.Exists(_fileManager.GetFullPath(trimmed))))
+            {
+                var dir = _fileManager.GetFullPath(trimmed);
+                if (!Directory.Exists(dir)) yield break;
+                foreach (var f in Directory.GetFiles(dir, "*", SearchOption.AllDirectories))
+                    yield return MakeRel(f);
+                yield break;
+            }
+
+            yield return path;
+        }
+
+        private static string MakeRel(string fullPath)
+        {
+            var rel = fullPath.Replace('\\', '/');
+            return rel.TrimStart('/');
         }
 
         /// <summary>

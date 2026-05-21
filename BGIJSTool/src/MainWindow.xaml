@@ -1,7 +1,8 @@
 <Window x:Class="BGIJSTool.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="BetterGI 脚本管理工具" Height="600" Width="800"
+        Title="BetterGI 脚本管理工具"
+        Height="650" Width="820"
         Loaded="Window_Loaded">
     <Grid Margin="10">
         <Grid.RowDefinitions>
@@ -10,15 +11,21 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
 
-        <!-- 第0行：路径标签 -->
-        <TextBlock Grid.Row="0" Text="BetterGI.exe 路径:" FontWeight="Bold" Margin="0,0,0,6"/>
+        <!-- Row 0: 路径标签 -->
+        <TextBlock Grid.Row="0" Grid.ColumnSpan="2"
+                   Text="BetterGI.exe 路径:" FontWeight="Bold" Margin="0,0,0,5"/>
 
-        <!-- 第1行：路径文本 + 浏览按钮 -->
-        <Grid Grid.Row="1" Margin="0,0,0,8">
+        <!-- Row 1: 路径展示 + 浏览按钮 -->
+        <Grid Grid.Row="1" Grid.ColumnSpan="2" Margin="0,0,0,8">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
@@ -29,35 +36,49 @@
                     Margin="6,0,0,0" Click="BrowseBtn_Click" VerticalAlignment="Center"/>
         </Grid>
 
-        <!-- 第2行：选择模块 -->
-        <Grid Grid.Row="2" Margin="0,0,0,4">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
-            <TextBlock Grid.Column="0" Text="选择模块:" VerticalAlignment="Center" Margin="0,0,6,0"/>
-            <ComboBox Grid.Column="1" x:Name="ModuleCombo" DisplayMemberPath="name"/>
-        </Grid>
+        <!-- Row 2: 模块标签 -->
+        <TextBlock Grid.Row="2" Text="选择模块:" VerticalAlignment="Center" Margin="0,0,6,4"/>
 
-        <!-- 第3行：执行按钮 -->
-        <Button Grid.Row="3" x:Name="ExecuteBtn" Content="执行" Width="80"
-                HorizontalAlignment="Right" Margin="0,0,0,6"
-                Click="ExecuteBtn_Click"/>
+        <!-- Row 3: 模块Combo + 执行/刷新按钮 -->
+        <ComboBox Grid.Row="3" x:Name="ModuleCombo" DisplayMemberPath="name"
+                  VerticalAlignment="Center" Margin="0,0,6,8"
+                  SelectionChanged="ModuleCombo_SelectionChanged"/>
+        <StackPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal"
+                    VerticalAlignment="Center">
+            <Button x:Name="ExecuteBtn" Content="执行" Width="80" Margin="0,0,4,0"
+                    Click="ExecuteBtn_Click"/>
+            <Button Content="刷新配置" Width="80"
+                    Click="RefreshBtn_Click"/>
+        </StackPanel>
 
-        <!-- 第4行：刷新配置 -->
-        <Button Grid.Row="4" Content="刷新配置" Width="80"
-                HorizontalAlignment="Right" Margin="0,0,0,8"
-                Click="RefreshBtn_Click"/>
+        <!-- Row 4: 还原分割线 -->
+        <Separator Grid.Row="4" Grid.ColumnSpan="2" Margin="0,4,0,6"/>
 
-        <!-- 第5行：日志 -->
-        <Border Grid.Row="5" BorderBrush="Gray" BorderThickness="1" Margin="0,0,0,10">
+        <!-- Row 5: 还原下拉框 -->
+        <TextBlock Grid.Row="5" Text="选择备份:" VerticalAlignment="Center"
+                   Margin="0,0,6,0"/>
+        <ComboBox Grid.Row="5" Grid.Column="1" x:Name="RestoreCombo"
+                  IsEditable="False" IsEnabled="False"
+                  VerticalAlignment="Center" Margin="0,0,0,0"
+                  ToolTip="列出 backup 目录中的所有压缩包"/>
+
+        <!-- Row 6: 执行还原按钮 -->
+        <Button Grid.Row="6" x:Name="ExecuteRestoreBtn" Grid.Column="1"
+                Content="执行还原" Width="80"
+                HorizontalAlignment="Right" VerticalAlignment="Center"
+                Margin="0,0,0,6"
+                Click="ExecuteRestoreBtn_Click"/>
+
+        <!-- Row 7: 日志 -->
+        <Border Grid.Row="7" Grid.ColumnSpan="2"
+                BorderBrush="Gray" BorderThickness="1" Margin="0,0,0,8">
             <RichTextBox x:Name="LogBox" IsReadOnly="True" BorderThickness="0"
                          VerticalScrollBarVisibility="Auto"
                          Background="#FFF8F8F8"/>
         </Border>
 
-        <!-- 第6行：状态栏 -->
-        <StatusBar Grid.Row="6">
+        <!-- Row 8: 状态栏 -->
+        <StatusBar Grid.Row="8" Grid.ColumnSpan="2">
             <StatusBarItem>
                 <TextBlock x:Name="StatusText" Text="就绪"/>
             </StatusBarItem>

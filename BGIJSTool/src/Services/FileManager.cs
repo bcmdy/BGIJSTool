@@ -1,215 +1,343 @@
 using System.IO;
 using System.Text;
+using System.Text.Json;
 using System.Collections.Generic;
 using BGIJSTool.Models;
 
-namespace BGIJSTool.Services
+namespace BGIJSTool.Services;
+
+public class FileManager
 {
-    public class FileManager
+    private readonly string _bgiPath;
+    private readonly string _programPath;
+    private readonly string _backupPath;
+    private readonly string _copyPath;
+
+    private record RestoreEntry(
+        [property: JsonPropertyName("op")] string Op,
+        [property: JsonPropertyName("srcPaths")] List<string> SrcPaths);
+
+    private record RestoreManifest(
+        [property: JsonPropertyName("moduleName")] string ModuleName,
+        [property: JsonPropertyName("createdAt")] string CreatedAt,
+        [property: JsonPropertyName("restore")] List<RestoreEntry> RestoreEntries);
+
+    public FileManager(string bgiPath, string programPath)
     {
-        private readonly string _bgiPath;    // BetterGI/User/jsScript 根目录
-        private readonly string _programPath;// 本程序所在目录（含 backup/ copy/）
-        private readonly string _backupPath; // program/backup
-        private readonly string _copyPath;   // program/copy
+        _bgiPath = bgiPath;
+        _programPath = programPath;
+        _backupPath = Path.Combine(programPath, "backup");
+        Directory.CreateDirectory(_backupPath);
+        _copyPath = Path.Combine(programPath, "copy");
+        Directory.CreateDirectory(_copyPath);
+    }
 
-        public FileManager(string bgiPath, string programPath)
-        {
-            _bgiPath = bgiPath;
-            _programPath = programPath;
-            _backupPath = Path.Combine(programPath, "backup");
-            Directory.CreateDirectory(_backupPath);
-            _copyPath = Path.Combine(programPath, "copy");
-            Directory.CreateDirectory(_copyPath);
-        }
+    public string GetFullPath(string relativePath)
+        => Path.Combine(_bgiPath, "User", "JsScript", relativePath);
 
-        public string GetFullPath(string relativePath)
-        {
-            return Path.Combine(_bgiPath, "User", "JsScript", relativePath);
-        }
+    public string GetBackupPath(string relativePath)
+        => Path.Combine(_backupPath, relativePath);
 
-        public string GetBackupPath(string relativePath)
-        {
-            return Path.Combine(_backupPath, relativePath);
-        }
+    public string GetCopySourcePath(string relativePath)
+        => Path.Combine(_copyPath, relativePath);
 
-        public string GetCopySourcePath(string relativePath)
-        {
-            return Path.Combine(_copyPath, relativePath);
-        }
+    // =========================================================================
+    //  对外入口（供 MainWindow 调用）
+    // =========================================================================
 
-        /// <summary>
-        /// 按模块步骤依次执行（bak → del → restore → copy 或自定义顺序）。
-        /// 支持 paths 中使用通配符（*.ext）和目录（dir/）自动展开。
-        /// </summary>
-        public void ExecuteStep(Step step, ILogger logger)
+    /// <summary>按模块步骤依次执行（bak → del → restore → copy）</summary>
+    public void ExecuteSteps(IEnumerable<Step> steps, ILogger logger)
+    {
+        var moduleSteps = steps.ToList();
+        if (moduleSteps.Count == 0) return;
+
+        bool hasBak = false;
+        var bakPaths = new HashSet<string>();
+
+        foreach (var step in moduleSteps)
         {
-            foreach (var path in step.paths)
+            if (step.op is OpType.bak or OpType.del)
+                foreach (var p in step.paths) bakPaths.Add(p);
+            if (step.op == OpType.bak) hasBak = true;
+
+            switch (step.op)
             {
-                IEnumerable<string> targets = ResolvePaths(path, step.op);
-                foreach (var resolved in targets)
+                case OpType.bak: break;
+                case OpType.del: ExecuteDel(step.paths, logger); break;
+                case OpType.restore: ExecuteRestore(step.paths, logger); break;
+                case OpType.copy: ExecuteCopy(step, logger); break;
+            }
+        }
+
+        if (hasBak && bakPaths.Count > 0)
+        {
+            CreateBakZip(bakPaths.ToList(), _ => "backup", logger);
+        }
+    }
+
+    /// <summary>合调单步的便利入口</summary>
+    public void ExecuteStep(Step step, ILogger logger)
+        => ExecuteSteps(new[] { step }, logger);
+
+    // =========================================================================
+    //  bak: zip 打包 + 写 restore 清单
+    // =========================================================================
+
+    public void CreateBakZip(List<string> allPaths, Func<Step, string> moduleNameGetter, ILogger logger)
+    {
+        var zipName = moduleNameGetter.Invoke(new Step());
+        var ts = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+        var zipFn = string.IsNullOrEmpty(zipName) ? $"backup_{ts}.zip" : $"{zipName}_{ts}.zip";
+        var zipFull = Path.Combine(_backupPath, zipFn);
+
+        var tmpDir = Path.Combine(_backupPath, $"_tmp_bak_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tmpDir);
+
+        var baked = new List<string>();
+        foreach (var path in allPaths)
+        {
+            foreach (var resolved in ResolveBgi(path))
+            {
+                var src = GetFullPath(resolved);
+                if (!File.Exists(src)) continue;
+                var dest = Path.Combine(tmpDir, resolved.Replace('/', Path.DirectorySeparatorChar));
+                Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+                File.Copy(src, dest, true);
+                baked.Add(resolved);
+            }
+        }
+
+        if (baked.Count > 0)
+        {
+            var manifest = new
+            {
+                moduleName = zipName,
+                createdAt = DateTime.Now.ToString("yyyyMMddTHHmmss"),
+                restore = new[]
                 {
-                    switch (step.op)
+                    new { op = "bak+del", srcPaths = baked.ToList() }
+                }
+            };
+            File.WriteAllText(
+                Path.Combine(tmpDir, "_restore_manifest.json"),
+                JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }),
+                Encoding.UTF8);
+        }
+
+        System.IO.Compression.ZipFile.CreateFromDirectory(tmpDir, zipFull,
+            System.IO.Compression.CompressionLevel.Optimal, false);
+        try { Directory.Delete(tmpDir, true); } catch { }
+
+        if (baked.Count > 0)
+            logger.LogSuccess($"备份完成（zip）: {zipFn}  共 {baked.Count} 个文件");
+        else
+            logger.LogWarning($"bak 路径未能解析到实际文件，未生成 zip: {zipFn}");
+    }
+
+    // =========================================================================
+    //  del
+    // =========================================================================
+
+    private void ExecuteDel(IEnumerable<string> paths, ILogger logger)
+    {
+        foreach (var p in paths)
+            foreach (var resolved in ResolveBgi(p))
+                DeleteFile(resolved, logger);
+    }
+
+    // =========================================================================
+    //  restore
+    // =========================================================================
+
+    public void ExecuteRestoreFromZip(string zipFileName, ILogger logger)
+    {
+        var zipFull = Path.Combine(_backupPath, zipFileName);
+        if (!File.Exists(zipFull))
+        {
+            logger.LogError($"备份 zip 不存在: {zipFull}");
+            return;
+        }
+
+        var tmpDir = Path.Combine(_backupPath, $"_restore_tmp_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tmpDir);
+        System.IO.Compression.ZipFile.ExtractToDirectory(zipFull, tmpDir);
+
+        var manifestFile = Path.Combine(tmpDir, "_restore_manifest.json");
+        if (File.Exists(manifestFile))
+        {
+            try
+            {
+                var manifest = JsonSerializer.Deserialize<RestoreManifest>(File.ReadAllText(manifestFile));
+                if (manifest != null && manifest.RestoreEntries.Count > 0)
+                {
+                    logger.LogInfo($"还原清单: {manifest.ModuleName}  (创建于 {manifest.CreatedAt})");
+                    foreach (var entry in manifest.RestoreEntries)
                     {
-                        case OpType.bak:     BackupFile(resolved, logger); break;
-                        case OpType.del:     DeleteFile(resolved, logger); break;
-                        case OpType.restore: RestoreFile(resolved, logger); break;
-                        case OpType.copy:    CopyFromDirFile(resolved, logger); break;
-                        default:             logger.LogWarning($"未知操作类型: {step.op.ToString()}，跳过 {resolved}"); break;
+                        if (entry.Op.StartsWith("bak+del"))
+                            foreach (var rp in entry.SrcPaths)
+                                RestoreFile(rp, logger);
                     }
+                    try { Directory.Delete(tmpDir, true); } catch { }
+                    return;
                 }
             }
+            catch { /* fallback */ }
         }
 
-        /// <summary>
-        /// 将 paths 中的单个条目解析为实际文件列表：
-        /// - 普通精确路径   → 返回自身
-        /// - 通配符 *.ext   → 在 BGI JsScript 目录下匹配所有匹配文件
-        /// - 目录（结尾为 / 或 \） → 递归遍历目录下所有文件
-        /// </summary>
-        private IEnumerable<string> ResolvePaths(string path, OpType op)
+        // Fallback: 还原 zip 内所有非 manifest 文件
+        foreach (var f in Directory.GetFiles(tmpDir, "*", SearchOption.AllDirectories)
+            .Where(f => !f.Contains("_restore_manifest.json", StringComparison.OrdinalIgnoreCase)))
         {
-            string trimmed = path.TrimEnd('/', '\\');
-
-            // 通配符匹配（含路径前缀，如 "subdir/*.json" 或 "*.json"）
-            if (path.Contains('*'))
-            {
-                var baseDir = Path.GetDirectoryName(GetFullPath(trimmed))
-                               ?? GetFullPath(string.Empty);
-                var pattern = Path.GetFileName(trimmed);
-                if (!Directory.Exists(baseDir))
-                    yield break;
-                foreach (var f in Directory.GetFiles(baseDir, pattern, SearchOption.TopDirectoryOnly))
-                    yield return MakeRelative(f);
-                yield break;
-            }
-
-            // 目录展开：
-            //   bak / del      → BGI JsScript 目录，GetFullPath
-            //   copy           → 程序下 copy/   目录，_copyPath
-            //   restore        → 程序下 backup/ 目录，_backupPath
-            bool isDir = path.EndsWith("/") || path.EndsWith("\\")
-                      || (Directory.Exists(GetFullPath(path)) && !File.Exists(GetFullPath(path)));
-            if (isDir)
-            {
-                string dirFull;
-                Func<string, string> makeRelative;
-
-                if (op == OpType.copy)
-                {
-                    // copy：从 copy/ 展开，相对路径供 CopyFromDirFile → GetCopySourcePath 使用
-                    dirFull = Path.Combine(_copyPath, trimmed);
-                    makeRelative = f => f.Substring(_copyPath.Length).Replace('\\', '/').TrimStart('/');
-                }
-                else if (op == OpType.restore)
-                {
-                    // restore：从 backup/ 展开，相对路径供 RestoreFile → GetBackupPath 使用
-                    dirFull = Path.Combine(_backupPath, trimmed);
-                    makeRelative = f => f.Substring(_backupPath.Length).Replace('\\', '/').TrimStart('/');
-                }
-                else
-                {
-                    // bak / del：仍在 BGI JsScript 下展开
-                    dirFull = GetFullPath(trimmed);
-                    makeRelative = MakeRelative;
-                }
-
-                if (!Directory.Exists(dirFull))
-                    yield break;
-                foreach (var f in Directory.GetFiles(dirFull, "*", SearchOption.AllDirectories))
-                    yield return makeRelative(f);
-                yield break;
-            }
-
-            // 普通精确文件
-            yield return path;
-
-            string MakeRelative(string fullPath)
-            {
-                string relative = fullPath.Substring(GetFullPath("").Length)
-                                  .Replace('\\', '/');
-                return relative.TrimStart('/');
-            }
+            var rel = f.Substring(tmpDir.Length).Replace('\\', '/').TrimStart('/');
+            RestoreFile(rel, logger);
         }
+        try { Directory.Delete(tmpDir, true); } catch { }
+    }
 
-        public void BackupFile(string relativePath, ILogger logger)
+    // =========================================================================
+    //  copy — zip 解压覆盖模式
+    // =========================================================================
+
+    public void ExecuteCopy(Step step, ILogger logger)
+    {
+        var zipName = step.ZipName ?? string.Empty;
+        var matched = FindCopyZip(zipName);
+        if (matched.Count == 0)
         {
-            var sourcePath = GetFullPath(relativePath);
-            var backupPath = GetBackupPath(relativePath);
-
-            if (!File.Exists(sourcePath))
-            {
-                logger.LogWarning($"文件不存在，跳过备份: {sourcePath}");
-                return;
-            }
-
-            var dir = Path.GetDirectoryName(backupPath);
-            if (!Directory.Exists(dir))
-            {
-                Directory.CreateDirectory(dir!);
-            }
-
-            File.Copy(sourcePath, backupPath, true);
-            logger.LogSuccess($"{sourcePath} -> {backupPath}");
+            logger.LogWarning($"copy/ 目录下未找到匹配的 zip: {zipName}*.zip，跳过本步骤");
+            return;
         }
+        if (matched.Count > 1)
+            logger.LogWarning($"copy/ 匹配到 {matched.Count} 个 zip，取第一个: {Path.GetFileName(matched[0])}");
 
-        public void DeleteFile(string relativePath, ILogger logger)
+        var zipFile = matched[0];
+        logger.LogInfo($"解压 copy 压缩包: {Path.GetFileName(zipFile)}");
+
+        var tmpDir = Path.Combine(_backupPath, $"_copy_extract_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tmpDir);
+
+        try
         {
-            var fullPath = GetFullPath(relativePath);
-
-            if (!File.Exists(fullPath))
-            {
-                logger.LogWarning($"文件不存在，跳过删除: {fullPath}");
-                return;
-            }
-
-            File.Delete(fullPath);
-            logger.LogSuccess(fullPath);
+            System.IO.Compression.ZipFile.ExtractToDirectory(zipFile, tmpDir);
+            int copied = CopyTreeOverwrite(tmpDir, GetFullPath(""), logger);
+            logger.LogInfo($"copy 完成，共还原 {copied} 个文件");
         }
-
-        public void RestoreFile(string relativePath, ILogger logger)
+        finally
         {
-            var backupPath = GetBackupPath(relativePath);
-            var targetPath = GetFullPath(relativePath);
-
-            if (!File.Exists(backupPath))
-            {
-                logger.LogError($"备份文件不存在，无法还原: {backupPath}");
-                return;
-            }
-
-            var dir = Path.GetDirectoryName(targetPath);
-            if (!Directory.Exists(dir))
-            {
-                Directory.CreateDirectory(dir!);
-            }
-
-            File.Copy(backupPath, targetPath, true);
-            logger.LogSuccess($"{backupPath} -> {targetPath}");
+            try { Directory.Delete(tmpDir, true); } catch { }
         }
+    }
 
-        /// <summary>
-        /// 从程序目录下的 copy/ 文件夹复制文件到 BGI JsScript 目标路径。
-        /// copy/ 目录结构与 BGI JsScript 保持一致，按相对路径定位源文件。
-        /// </summary>
-        public void CopyFromDirFile(string relativePath, ILogger logger)
+    private List<string> FindCopyZip(string zipName)
+    {
+        var list = new List<string>();
+        if (!string.IsNullOrEmpty(zipName))
         {
-            var sourcePath = GetCopySourcePath(relativePath);
-            var targetPath = GetFullPath(relativePath);
-
-            if (!File.Exists(sourcePath))
-            {
-                logger.LogWarning($"copy 目录下文件不存在，跳过: {sourcePath}");
-                return;
-            }
-
-            var dir = Path.GetDirectoryName(targetPath);
-            if (!Directory.Exists(dir))
-            {
-                Directory.CreateDirectory(dir!);
-            }
-
-            File.Copy(sourcePath, targetPath, true);
-            logger.LogSuccess($"{sourcePath} -> {targetPath}");
+            list.AddRange(Directory.GetFiles(_copyPath, $"{zipName}*.zip", SearchOption.TopDirectoryOnly));
+            if (list.Count == 0)
+                list.AddRange(Directory.GetFiles(_copyPath, zipName, SearchOption.TopDirectoryOnly));
         }
+        if (list.Count == 0)
+            list.AddRange(Directory.GetFiles(_copyPath, "*.zip", SearchOption.TopDirectoryOnly));
+        return list;
+    }
+
+    // 旧版兼容
+    public void ExecuteCopyStep(Step step, ILogger logger) => ExecuteCopy(step, logger);
+
+    // =========================================================================
+    //  基础文件操作（保持 API 不变）
+    // =========================================================================
+
+    public void BackupFile(string relativePath, ILogger logger)
+    {
+        var src = GetFullPath(relativePath);
+        var dst = GetBackupPath(relativePath);
+        if (!File.Exists(src))
+        {
+            logger.LogWarning($"文件不存在，跳过备份: {src}");
+            return;
+        }
+        Directory.CreateDirectory(Path.GetDirectoryName(dst)!);
+        File.Copy(src, dst, true);
+        logger.LogSuccess($"{src} -> {dst}");
+    }
+
+    public void DeleteFile(string relativePath, ILogger logger)
+    {
+        var full = GetFullPath(relativePath);
+        if (!File.Exists(full))
+        {
+            logger.LogWarning($"文件不存在，跳过删除: {full}");
+            return;
+        }
+        File.Delete(full);
+        logger.LogSuccess(full);
+    }
+
+    public void RestoreFile(string relativePath, ILogger logger)
+    {
+        var src = GetBackupPath(relativePath);
+        var dst = GetFullPath(relativePath);
+        if (!File.Exists(src))
+        {
+            logger.LogError($"备份文件不存在，无法还原: {src}");
+            return;
+        }
+        Directory.CreateDirectory(Path.GetDirectoryName(dst)!);
+        File.Copy(src, dst, true);
+        logger.LogSuccess($"{src} -> {dst}");
+    }
+
+    // =========================================================================
+    //  私有辅助
+    // =========================================================================
+
+    private IEnumerable<string> ResolveBgi(string path)
+    {
+        var trimmed = path.TrimEnd('/', '\\');
+
+        if (path.Contains('*'))
+        {
+            var baseDir = Path.GetDirectoryName(GetFullPath(trimmed)) ?? GetFullPath("");
+            var pattern = Path.GetFileName(trimmed);
+            if (!Directory.Exists(baseDir)) yield break;
+            foreach (var f in Directory.GetFiles(baseDir, pattern, SearchOption.TopDirectoryOnly))
+                yield return MakeRel(f);
+            yield break;
+        }
+
+        if (path.EndsWith("/") || path.EndsWith("\\")
+            || (Directory.Exists(GetFullPath(path)) && !File.Exists(GetFullPath(trimmed))))
+        {
+            var dir = GetFullPath(trimmed);
+            if (!Directory.Exists(dir)) yield break;
+            foreach (var f in Directory.GetFiles(dir, "*", SearchOption.AllDirectories))
+                yield return MakeRel(f);
+            yield break;
+        }
+
+        yield return path;
+    }
+
+    private static string MakeRel(string fullPath)
+    {
+        var rel = fullPath.Replace('\\', '/');
+        return rel.TrimStart('/');
+    }
+
+    private int CopyTreeOverwrite(string srcDir, string dstDir, ILogger? logger = null)
+    {
+        int n = 0;
+        foreach (var file in Directory.GetFiles(srcDir, "*", SearchOption.AllDirectories))
+        {
+            var rel = Path.GetRelativePath(srcDir, file);
+            var dest = Path.Combine(dstDir, rel);
+            Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
+            File.Copy(file, dest, true);
+            n++;
+            logger?.LogSuccess($"copy 解压覆盖: {file} -> {dest}");
+        }
+        return n;
     }
 }

@@ -156,34 +156,34 @@ namespace BGIJSTool
                 var moduleSteps = module.Steps.ToList();
                 int totalFiles = 0;
 
-                // del / restore / copy 即时执行；bak 特殊处理
-                foreach (var step in moduleSteps)
-                {
-                    totalFiles += step.paths.Count;
-                    switch (step.op)
-                    {
-                        case OpType.bak:     break;
-                        case OpType.del:     ExecuteDel(step, _logger);       break;
-                        case OpType.restore: ExecuteRestore(step, _logger);   break;
-                        case OpType.copy:    ExecuteCopy(step, _logger);       break;
-                    }
-                }
-
-                // bak 收集所有 bak+del 路径，统一打包 zip
-                var  bakPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                bool hasBak   = false;
+                // 先第一遍扫描：收集 bak+del 路径，统计文件总数，决定是否需备份
+                var bakPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                bool hasBak = false;
                 foreach (var s in moduleSteps)
                 {
-                    if (s.op == OpType.bak) hasBak = true;
+                    totalFiles += s.paths.Count;
                     if (s.op is OpType.bak or OpType.del)
                         foreach (var p in s.paths) bakPaths.Add(p);
+                    if (s.op == OpType.bak) hasBak = true;
                 }
 
+                // 先备份（在删除之前，确保源文件还在）
                 if (hasBak && bakPaths.Count > 0)
                 {
                     _logger.LogInfo($"模块备份: {module.name}，共 {bakPaths.Count} 条路径");
-                    var stepsForZip = module.Steps.Select(s => new Step { op = s.op, paths = s.paths.ToList() }).ToList();
-                    _fileManager.CreateBakZip(bakPaths.ToList(), _ => module.name, _logger);
+                    _fileManager.CreateBakZip(bakPaths.ToList(), module.name, _logger);
+                }
+
+                // 再执行具体操作
+                foreach (var step in moduleSteps)
+                {
+                    switch (step.op)
+                    {
+                        case OpType.bak:     break;                      // 已提前处理
+                        case OpType.del:     ExecuteDel(step, _logger);    break;
+                        case OpType.restore: ExecuteRestore(step, _logger); break;
+                        case OpType.copy:    ExecuteCopy(step, _logger);    break;
+                    }
                 }
 
                 // 刷新还原下拉框

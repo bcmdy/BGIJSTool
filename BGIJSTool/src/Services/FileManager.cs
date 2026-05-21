@@ -1,9 +1,12 @@
 using System.IO;
+using System.IO.Compression;
 using System.Text;
+using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Collections.Generic;
 using BGIJSTool.Models;
+using E = System.Text.Encoding;
 
 namespace BGIJSTool.Services;
 
@@ -46,7 +49,7 @@ public class FileManager
     //  对外入口（供 MainWindow 调用）
     // =========================================================================
 
-    /// <summary>按模块步骤依次执行（bak → del → restore → copy）</summary>
+    /// <summary>按模块步骤依次执行（bak+del 先备份再删；然后 restore → copy）</summary>
     public void ExecuteSteps(IEnumerable<Step> steps, ILogger logger)
     {
         var moduleSteps = steps.ToList();
@@ -60,10 +63,22 @@ public class FileManager
             if (step.op is OpType.bak or OpType.del)
                 foreach (var p in step.paths) bakPaths.Add(p);
             if (step.op == OpType.bak) hasBak = true;
+        }
 
+        // 先备份（在删除之前，确保源文件还在）
+        if (hasBak && bakPaths.Count > 0)
+        {
+            var zipLabel = "backup";
+            try { zipLabel = moduleSteps.First().paths.FirstOrDefault() ?? "backup"; } catch { }
+            CreateBakZip(bakPaths.ToList(), zipLabel, logger);
+        }
+
+        // 再执行具体操作
+        foreach (var step in moduleSteps)
+        {
             switch (step.op)
             {
-                case OpType.bak: break;
+                case OpType.bak: break; // 已提前处理
                 case OpType.del: ExecuteDel(step.paths, logger); break;
                 case OpType.restore:
                     foreach (var p in step.paths)
@@ -72,11 +87,6 @@ public class FileManager
                     break;
                 case OpType.copy: ExecuteCopy(step, logger); break;
             }
-        }
-
-        if (hasBak && bakPaths.Count > 0)
-        {
-            CreateBakZip(bakPaths.ToList(), _ => "backup", logger);
         }
     }
 
@@ -88,9 +98,8 @@ public class FileManager
     //  bak: zip 打包 + 写 restore 清单
     // =========================================================================
 
-    public void CreateBakZip(List<string> allPaths, Func<Step, string> moduleNameGetter, ILogger logger)
+    public void CreateBakZip(List<string> allPaths, string zipName, ILogger logger)
     {
-        var zipName = moduleNameGetter.Invoke(new Step());
         var ts = DateTime.Now.ToString("yyyyMMdd_HHmmss");
         var zipFn = string.IsNullOrEmpty(zipName) ? $"backup_{ts}.zip" : $"{zipName}_{ts}.zip";
         var zipFull = Path.Combine(_backupPath, zipFn);
@@ -223,12 +232,53 @@ public class FileManager
         try
         {
             System.IO.Compression.ZipFile.ExtractToDirectory(zipFile, tmpDir);
+
+            // 用 GBK 再次解码解压后的文件名（处理 GBK 编码的 zip 产生的乱码）
+            FixDirEncoding(tmpDir, Encoding.GetEncoding("GB2312"));
+
             int copied = CopyTreeOverwrite(tmpDir, GetFullPath(""), logger);
             logger.LogInfo($"copy 完成，共还原 {copied} 个文件");
         }
         finally
         {
             try { Directory.Delete(tmpDir, true); } catch { }
+        }
+    }
+
+    /// <summary>
+    /// 修正 GBK 编码 zip 解压后产生的乱码文件名：将解压出的乱码文件夹名用 GBK 重新解码，
+    /// 还原为正确的中文名。
+    /// </summary>
+    private static void FixDirEncoding(string rootDir, Encoding gbk)
+    {
+        var dirs = Directory.GetDirectories(rootDir, "*", SearchOption.TopDirectoryOnly);
+        foreach (var dir in dirs)
+        {
+            // 下一层继续递归
+            FixDirEncoding(dir, gbk);
+
+            // 检查目录名是否含乱码
+            var dirName = Path.GetFileName(dir);
+            if (dirName.Contains('�'))
+            {
+                // 用 UTF8 bytes 来"逆推"GBK 原始字节，再用 GBK 解码
+                var bytes = Encoding.UTF8.GetBytes(dirName);
+                try
+                {
+                    var fixedName = gbk.GetString(bytes);
+                    if (!fixedName.Contains('�'))
+                    {
+                        var target = Path.Combine(rootDir, fixedName);
+                        if (!Directory.Exists(target))
+                        {
+                            Directory.Move(dir, target);
+                            // 乱码目录修正（GBK重解码失败则跳过）
+                            // dirName -> fixedName, no log available in static helper
+                        }
+                    }
+                }
+                catch { /* invalid bytes, skip */ }
+            }
         }
     }
 

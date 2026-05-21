@@ -65,7 +65,11 @@ public class FileManager
             {
                 case OpType.bak: break;
                 case OpType.del: ExecuteDel(step.paths, logger); break;
-                case OpType.restore: ExecuteRestore(step.paths, logger); break;
+                case OpType.restore:
+                    foreach (var p in step.paths)
+                        foreach (var resolved in ResolveBgi(p))
+                            RestoreFile(resolved, logger);
+                    break;
                 case OpType.copy: ExecuteCopy(step, logger); break;
             }
         }

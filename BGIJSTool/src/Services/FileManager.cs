@@ -7,10 +7,10 @@ namespace BGIJSTool.Services
 {
     public class FileManager
     {
-        private readonly string _bgiPath;
-        private readonly string _programPath;
-        private readonly string _backupPath;
-        private readonly string _copyPath;
+        private readonly string _bgiPath;    // BetterGI/User/jsScript 根目录
+        private readonly string _programPath;// 本程序所在目录（含 backup/ copy/）
+        private readonly string _backupPath; // program/backup
+        private readonly string _copyPath;   // program/copy
 
         public FileManager(string bgiPath, string programPath)
         {
@@ -50,11 +50,11 @@ namespace BGIJSTool.Services
                 {
                     switch (step.op)
                     {
-                        case "bak":     BackupFile(resolved, logger); break;
-                        case "del":     DeleteFile(resolved, logger); break;
-                        case "restore": RestoreFile(resolved, logger); break;
-                        case "copy":    CopyFromDirFile(resolved, logger); break;
-                        default:        logger.LogWarning($"未知操作类型: {step.op}，跳过 {resolved}"); break;
+                        case OpType.bak:     BackupFile(resolved, logger); break;
+                        case OpType.del:     DeleteFile(resolved, logger); break;
+                        case OpType.restore: RestoreFile(resolved, logger); break;
+                        case OpType.copy:    CopyFromDirFile(resolved, logger); break;
+                        default:             logger.LogWarning($"未知操作类型: {step.op.ToString()}，跳过 {resolved}"); break;
                     }
                 }
             }
@@ -66,7 +66,7 @@ namespace BGIJSTool.Services
         /// - 通配符 *.ext   → 在 BGI JsScript 目录下匹配所有匹配文件
         /// - 目录（结尾为 / 或 \） → 递归遍历目录下所有文件
         /// </summary>
-        private IEnumerable<string> ResolvePaths(string path, string op)
+        private IEnumerable<string> ResolvePaths(string path, OpType op)
         {
             string trimmed = path.TrimEnd('/', '\\');
 
@@ -83,16 +83,40 @@ namespace BGIJSTool.Services
                 yield break;
             }
 
-            // 目录展开
+            // 目录展开：
+            //   bak / del      → BGI JsScript 目录，GetFullPath
+            //   copy           → 程序下 copy/   目录，_copyPath
+            //   restore        → 程序下 backup/ 目录，_backupPath
             bool isDir = path.EndsWith("/") || path.EndsWith("\\")
                       || (Directory.Exists(GetFullPath(path)) && !File.Exists(GetFullPath(path)));
             if (isDir)
             {
-                var dirFull = GetFullPath(trimmed);
+                string dirFull;
+                Func<string, string> makeRelative;
+
+                if (op == OpType.copy)
+                {
+                    // copy：从 copy/ 展开，相对路径供 CopyFromDirFile → GetCopySourcePath 使用
+                    dirFull = Path.Combine(_copyPath, trimmed);
+                    makeRelative = f => f.Substring(_copyPath.Length).Replace('\\', '/').TrimStart('/');
+                }
+                else if (op == OpType.restore)
+                {
+                    // restore：从 backup/ 展开，相对路径供 RestoreFile → GetBackupPath 使用
+                    dirFull = Path.Combine(_backupPath, trimmed);
+                    makeRelative = f => f.Substring(_backupPath.Length).Replace('\\', '/').TrimStart('/');
+                }
+                else
+                {
+                    // bak / del：仍在 BGI JsScript 下展开
+                    dirFull = GetFullPath(trimmed);
+                    makeRelative = MakeRelative;
+                }
+
                 if (!Directory.Exists(dirFull))
                     yield break;
                 foreach (var f in Directory.GetFiles(dirFull, "*", SearchOption.AllDirectories))
-                    yield return MakeRelative(f);
+                    yield return makeRelative(f);
                 yield break;
             }
 

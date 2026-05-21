@@ -2,7 +2,7 @@
   "BGIpath": "E:\\YS\\BetterGI",
   "modules": [
     {
-      "name": "修复稻妻大炮bug【删除】",
+      "name": "修复稻妻大炮bug【删除】(记得隔天还原)",
       "files": [
         {
           "op": "bak",
@@ -34,6 +34,51 @@
             "AAA-Artifacts-Bulk-Supply\\assets\\ArtifactsPath\\额外\\所有额外\\准备\\001【激活程序】稻妻大炮1.json",
             "AAA-Artifacts-Bulk-Supply\\assets\\ArtifactsPath\\额外\\所有额外\\准备\\001【激活程序】稻妻大炮2.json",
             "ArtifactsGroupPurchasing\\assets\\ArtifactsPath\\额外\\前执行\\99【复位程序】稻妻踏鞴砂大炮点.json"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "狗粮批发线路收尾改茶叶【AB都改】",
+      "files": [
+        {
+          "op": "bak",
+          "paths": [
+            "AAA-Artifacts-Bulk-Supply\\assets\\ArtifactsPath\\替补收尾路线\\",
+            "AAA-Artifacts-Bulk-Supply\\assets\\ArtifactsPath\\优先收尾路线\\"
+          ]
+        },
+        {
+          "op": "del",
+          "paths": [
+            "AAA-Artifacts-Bulk-Supply\\assets\\ArtifactsPath\\替补收尾路线\\",
+            "AAA-Artifacts-Bulk-Supply\\assets\\ArtifactsPath\\优先收尾路线\\"
+          ]
+        },
+        {
+          "op": "copy",
+          "paths": [
+            "AAA-Artifacts-Bulk-Supply\\assets\\ArtifactsPath\\替补收尾路线\\",
+            "AAA-Artifacts-Bulk-Supply\\assets\\ArtifactsPath\\优先收尾路线\\"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "狗粮批发线路收尾改茶叶【还原】",
+      "files": [
+        {
+          "op": "del",
+          "paths": [
+            "AAA-Artifacts-Bulk-Supply\\assets\\ArtifactsPath\\替补收尾路线\\",
+            "AAA-Artifacts-Bulk-Supply\\assets\\ArtifactsPath\\优先收尾路线\\"
+          ]
+        },
+        {
+          "op": "restore",
+          "paths": [
+            "AAA-Artifacts-Bulk-Supply\\assets\\ArtifactsPath\\替补收尾路线\\",
+            "AAA-Artifacts-Bulk-Supply\\assets\\ArtifactsPath\\优先收尾路线\\"
           ]
         }
       ]

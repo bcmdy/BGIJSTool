@@ -4,6 +4,14 @@ using System.Text.Json.Serialization;
 
 namespace BGIJSTool.Models
 {
+    public enum OpType
+    {
+        bak,
+        del,
+        restore,
+        copy
+    }
+
     public class Config
     {
         [JsonPropertyName("BGIpath")]
@@ -25,9 +33,10 @@ namespace BGIJSTool.Models
 
     public class Step
     {
-        /// <summary>操作类型：bak = 备份, del = 删除, restore = 还原</summary>
+        /// <summary>操作类型</summary>
         [JsonPropertyName("op")]
-        public string op { get; set; } = string.Empty;
+        [JsonConverter(typeof(JsonStringEnumConverter))]
+        public OpType op { get; set; }
 
         /// <summary>当前操作对应的文件相对路径列表</summary>
         [JsonPropertyName("paths")]
@@ -69,7 +78,7 @@ namespace BGIJSTool.Models
             foreach (var step in value.Steps)
             {
                 writer.WriteStartObject();
-                writer.WriteString("op", step.op);
+                writer.WriteString("op", step.op.ToString());
                 writer.WritePropertyName("paths");
                 JsonSerializer.Serialize(writer, step.paths, options);
                 writer.WriteEndObject();

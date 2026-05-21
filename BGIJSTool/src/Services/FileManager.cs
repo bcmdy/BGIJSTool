@@ -323,9 +323,15 @@ public class FileManager
         yield return path;
     }
 
-    private static string MakeRel(string fullPath)
+    /// <summary>将 JsScript 下绝对路径转为相对路径（去掉 "JsScript/" 前缀）</summary>
+    private string MakeRel(string fullPath)
     {
-        var rel = fullPath.Replace('\\', '/');
+        // GetFullPath("") = D:\YS\BetterGI-lcb\User\JsScript ( trailing slash trimmed via Path.TrimEnd )
+        var baseLen = GetFullPath("").TrimEnd(Path.DirectorySeparatorChar).Length;
+        if (!fullPath.StartsWith(GetFullPath(""), StringComparison.OrdinalIgnoreCase))
+            return fullPath;
+        var rel = fullPath.Substring(baseLen + 1)
+                            .Replace('\\', '/');
         return rel.TrimStart('/');
     }
 

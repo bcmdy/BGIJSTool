@@ -1,17 +1,20 @@
 using System.IO;
-using System.IO.Compression;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Collections.Generic;
+using System.Linq;
 using BGIJSTool.Models;
-using E = System.Text.Encoding;
+using ICSharpCode.SharpZipLib.Zip;
 
 namespace BGIJSTool.Services;
 
 public class FileManager
 {
+    private static readonly Encoding GBK     = Encoding.GetEncoding("GBK");
+    private static readonly Encoding GB18030 = Encoding.GetEncoding("GB18030");
+
     private readonly string _bgiPath;
     private readonly string _programPath;
     private readonly string _backupPath;
@@ -46,10 +49,9 @@ public class FileManager
         => Path.Combine(_copyPath, relativePath);
 
     // =========================================================================
-    //  对外入口（供 MainWindow 调用）
+    //  对外入口
     // =========================================================================
 
-    /// <summary>按模块步骤依次执行（bak+del 先备份再删；然后 restore → copy）</summary>
     public void ExecuteSteps(IEnumerable<Step> steps, ILogger logger)
     {
         var moduleSteps = steps.ToList();
@@ -65,7 +67,6 @@ public class FileManager
             if (step.op == OpType.bak) hasBak = true;
         }
 
-        // 先备份（在删除之前，确保源文件还在）
         if (hasBak && bakPaths.Count > 0)
         {
             var zipLabel = "backup";
@@ -73,12 +74,11 @@ public class FileManager
             CreateBakZip(bakPaths.ToList(), zipLabel, logger);
         }
 
-        // 再执行具体操作
         foreach (var step in moduleSteps)
         {
             switch (step.op)
             {
-                case OpType.bak: break; // 已提前处理
+                case OpType.bak: break;
                 case OpType.del: ExecuteDel(step.paths, logger); break;
                 case OpType.restore:
                     foreach (var p in step.paths)
@@ -90,12 +90,11 @@ public class FileManager
         }
     }
 
-    /// <summary>合调单步的便利入口</summary>
     public void ExecuteStep(Step step, ILogger logger)
         => ExecuteSteps(new[] { step }, logger);
 
     // =========================================================================
-    //  bak: zip 打包 + 写 restore 清单
+    //  bak
     // =========================================================================
 
     public void CreateBakZip(List<string> allPaths, string zipName, ILogger logger)
@@ -138,8 +137,7 @@ public class FileManager
                 Encoding.UTF8);
         }
 
-        System.IO.Compression.ZipFile.CreateFromDirectory(tmpDir, zipFull,
-            System.IO.Compression.CompressionLevel.Optimal, false);
+        ZipFile.CreateFromDirectory(tmpDir, zipFull, CompressionLevel.Optimal, false);
         try { Directory.Delete(tmpDir, true); } catch { }
 
         if (baked.Count > 0)
@@ -174,7 +172,7 @@ public class FileManager
 
         var tmpDir = Path.Combine(_backupPath, $"_restore_tmp_{Guid.NewGuid():N}");
         Directory.CreateDirectory(tmpDir);
-        System.IO.Compression.ZipFile.ExtractToDirectory(zipFull, tmpDir);
+        ZipFile.ExtractToDirectory(zipFull, tmpDir);
 
         var manifestFile = Path.Combine(tmpDir, "_restore_manifest.json");
         if (File.Exists(manifestFile))
@@ -193,7 +191,6 @@ public class FileManager
                         {
                             foreach (var rp in entry.SrcPaths)
                             {
-                                // 直接从备份 zip 临时目录复制，不走单文件 backup/ 路径
                                 var src = Path.Combine(tmpDir, rp.Replace('/', Path.DirectorySeparatorChar));
                                 var dst = GetFullPath(rp);
                                 if (!File.Exists(src))
@@ -217,7 +214,6 @@ public class FileManager
             }
         }
 
-        // Fallback: 还原 zip 内所有非 manifest 文件
         foreach (var f in Directory.GetFiles(tmpDir, "*", SearchOption.AllDirectories)
             .Where(f => !f.Contains("_restore_manifest.json", StringComparison.OrdinalIgnoreCase)))
         {
@@ -230,9 +226,6 @@ public class FileManager
         try { Directory.Delete(tmpDir, true); } catch { }
     }
 
-    /// <summary>
-    /// 基于指定根目录计算相对路径（替代 Substring 方案，避免路径分隔符问题）。
-    /// </summary>
     private static string MakeRelFromRoot(string fullPath, string rootDir)
     {
         var prefix = rootDir.TrimEnd('\\') + "\\";
@@ -242,14 +235,13 @@ public class FileManager
     }
 
     // =========================================================================
-    //  copy — zip 解压覆盖模式
+    //  copy — SharpZipLib + 自动编码识别
     // =========================================================================
 
     public void ExecuteCopy(Step step, ILogger logger)
     {
-        // copy 的 paths[0] = zip 包名（如 "狗粮批发线路收尾改茶叶【AB都改】.zip"）
         var zipQuery = step.paths.Count > 0 ? step.paths[0] : "*.zip";
-        var matched  = FindCopyZip(zipQuery);
+        var matched = FindCopyZip(zipQuery);
         if (matched.Count == 0)
         {
             logger.LogWarning($"copy/ 目录下未找到匹配的 zip: {zipQuery}，跳过本步骤");
@@ -261,7 +253,7 @@ public class FileManager
 
         try
         {
-            int copied = ExtractZipWithEncoding(zipFile, GetFullPath(""), logger);
+            int copied = ExtractWithAutoEncoding(zipFile, GetFullPath(""), logger);
             logger.LogInfo($"copy 完成，共还原 {copied} 个文件");
         }
         catch (Exception ex)
@@ -272,113 +264,176 @@ public class FileManager
     }
 
     /// <summary>
-    /// 用 ZipArchive 逐条读取，通过启发式检测自动识别 GBK/UTF-8 编码。
-    /// zip 条目名本身无法存储 ANSI/GBK 标志（除非用非标准 APPNote 字段），
-    /// 这里用 "UTF-8 解码结果含乱码 → 用 GBK 重解码" 策略处理。
+    /// SharpZipLib 解压，自动识别条目名编码（UTF-8 vs GBK）。
+    /// 通过启发式检测判断 SharpZipLib 解码后的文件名是否正确。
     /// </summary>
-    private int ExtractZipWithEncoding(string zipFile, string destDir, ILogger logger)
+    private int ExtractWithAutoEncoding(string zipFile, string destDir, ILogger logger)
     {
         int copied = 0;
-        var gb18030 = E.GetEncoding("GB18030"); // 兼容 GBK / GB2312
-        var gbk     = E.GetEncoding("GBK");
 
         using var fs = File.OpenRead(zipFile);
-        using var archive = new ZipArchive(fs, ZipArchiveMode.Read);
+        using var zf = new ZipFile(fs);
 
-        foreach (var entry in archive.Entries)
+        // 先尝试用 UTF-8 读取所有条目，检测是否有乱码
+        var entries = new List<(ZipEntry Entry, string DecodedName, bool IsValid)>();
+        foreach (ZipEntry entry in zf)
         {
-            // 跳过纯目录条目（FullName 以 / 结尾且 Name 为空）
-            if (entry.FullName.EndsWith("/") && string.IsNullOrEmpty(entry.Name))
-                continue;
+            if (entry.IsDirectory) continue;
 
-            var decodedName = AutoDecodeZipName(entry.FullName, gb18030, gbk);
-            var targetPath  = Path.Combine(destDir, decodedName);
-            var targetDir   = Path.GetDirectoryName(targetPath)!;
+            var decodedName = entry.Name; // SharpZipLib 自动解码的结果
+            var isValid = !ContainsMojibake(decodedName) && IsPlausiblePath(decodedName);
+            entries.Add((entry, decodedName, isValid));
+        }
+
+        // 判断整体编码：如果有超过 50% 的条目乱码，则认为是 GBK 编码
+        var total = entries.Count;
+        var validCount = entries.Count(e => e.IsValid);
+        var useGbk = total > 0 && validCount < total / 2;
+
+        if (useGbk)
+            logger.LogInfo("检测到 zip 使用 GBK 编码，将重新解码文件名");
+
+        foreach (var (entry, decodedName, isValid) in entries)
+        {
+            string entryName;
+            if (isValid || !useGbk)
+            {
+                entryName = decodedName;
+            }
+            else
+            {
+                // 用 GBK 重新解码原始字节
+                entryName = ReDecodeWithGbk(decodedName);
+                logger.LogInfo($"编码修正: {decodedName} -> {entryName}");
+            }
+
+            var targetPath = Path.Combine(destDir, entryName.Replace('/', '\\'));
+            var targetDir = Path.GetDirectoryName(targetPath)!;
 
             Directory.CreateDirectory(targetDir);
-            entry.ExtractToFile(targetPath, true);
+
+            using var entryStream = zf.GetInputStream(entry);
+            using var fileStream = File.Create(targetPath);
+            entryStream.CopyTo(fileStream);
+
             copied++;
-            logger.LogSuccess($"copy 解压覆盖: {decodedName} -> {targetPath}");
+            logger.LogSuccess($"copy 解压覆盖: {entryName} -> {targetPath}");
         }
 
         return copied;
     }
 
     /// <summary>
-    /// 启发式检测：先检查 UTF-8 解码是否已正确；若含乱码则逆推原始字节
-    /// 并用 GB18030 / GBK 重解码，取第一个无乱码结果。
+    /// 将 SharpZipLib 用 UTF-8 解码后的乱码字符串，用 GBK 重新解码原始字节。
+    /// 原理：UTF-8 解码 GBK 字节后得到的乱码字符串，再 Encode 回 UTF-8 字节，
+    /// 这些字节其实就是原始的 GBK 字节，再用 GBK 解码即可。
     /// </summary>
-    private static string AutoDecodeZipName(string utf8Name, Encoding gb18030, Encoding gbk)
+    private static string ReDecodeWithGbk(string utf8DecodedGarbage)
     {
-        if (!ContainsMojibake(utf8Name))
-            return utf8Name.Replace('/', '\\');
-
-        // 逆推：用 UTF-8 字节序列尝试用 GB18030 解码
         try
         {
-            var bytes    = E.UTF8.GetBytes(utf8Name);
-            var gbResult = gb18030.GetString(bytes);
-            if (!ContainsMojibake(gbResult))
-                return gbResult.Replace('/', '\\');
+            // 关键步骤：把 UTF-8 乱码字符串编码回字节（这些字节就是原始 GBK 字节）
+            var bytes = E.UTF8.GetBytes(utf8DecodedGarbage);
+            var fixedName = GBK.GetString(bytes);
+
+            if (!ContainsMojibake(fixedName))
+                return fixedName;
         }
         catch { }
 
-        // 再试 GBK
         try
         {
-            var bytes    = E.UTF8.GetBytes(utf8Name);
-            var gbResult = gbk.GetString(bytes);
-            if (!ContainsMojibake(gbResult))
-                return gbResult.Replace('/', '\\');
+            // 再试 GB18030
+            var bytes = E.UTF8.GetBytes(utf8DecodedGarbage);
+            var fixedName = GB18030.GetString(bytes);
+
+            if (!ContainsMojibake(fixedName))
+                return fixedName;
         }
         catch { }
 
-        // 都失败了，返回原始 UTF-8 解码结果
-        return utf8Name.Replace('/', '\\');
+        return utf8DecodedGarbage;
     }
 
     /// <summary>
-    /// 检查字符串是否含乱码特征（替换字符 "、锟斤拷 类、不可见控制字符）。
+    /// 启发式检测：判断字符串是否含乱码。
+    /// 检测 Unicode 替换字符、锟斤拷模式、以及中文路径中的异常字符。
     /// </summary>
     private static bool ContainsMojibake(string text)
     {
         if (string.IsNullOrEmpty(text)) return false;
-        if (text.Contains('�')) return true;           // Unicode 替换字符
-        if (text.Contains('锟')) return true;               // 锟斤拷 / 锟芥补
 
+        // 1. Unicode 替换字符 U+FFFD
+        if (text.Contains('�')) return true;
+
+        // 2. 常见乱码模式（锟斤拷系列）
+        if (text.Contains('锟')) return true;
+
+        // 3. 检测是否有大量希腊字母/西里尔字母等（UTF-8 多字节被拆散后的常见特征）
+        //    比如 "β·" 这种就是典型的 UTF-8 字节被当成 Latin-1 后的结果
+        int suspiciousCount = 0;
         foreach (var c in text)
         {
-            if (c < 32 && c is not ('\r' or '\n' or '\t'))
-                return true;
+            // 希腊字母范围 U+0370-U+03FF
+            if (c >= 'Ͱ' && c <= 'Ͽ') suspiciousCount++;
+            // 西里尔字母范围 U+0400-U+04FF
+            if (c >= 'Ѐ' && c <= 'ӿ') suspiciousCount++;
+            // 控制字符（除正常换行制表）
+            if (c < 32 && c is not ('\r' or '\n' or '\t')) return true;
         }
+
+        // 如果希腊/西里尔字母占比过高，认为是乱码
+        if (text.Length > 0 && suspiciousCount > text.Length / 4) return true;
+
         return false;
     }
 
+    /// <summary>
+    /// 判断路径是否像合理的中文路径（包含常见中文字符或特定英文关键词）。
+    /// 用于区分 "确实乱码" 和 "本来就是英文路径" 的情况。
+    /// </summary>
+    private static bool IsPlausiblePath(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return true;
+
+        // 如果路径包含这些中文游戏术语，认为是中文路径
+        var chineseMarkers = new[]
+        {
+            "路线", "执行", "准备", "清怪", "收尾",
+            "稻妻", "须弥", "踏鞴", "智障", "狗粮", "茶叶",
+            "ArtifactsPath"
+        };
+        foreach (var marker in chineseMarkers)
+        {
+            if (path.Contains(marker)) return true;
+        }
+
+        // 如果路径全是 ASCII，也认为是合理的（纯英文路径）
+        if (path.All(c => c < 128)) return true;
+
+        // 包含非 ASCII 但不含中文标记，可能是乱码
+        return false;
+    }
+
+    // =========================================================================
+    //  其他方法保持不变
+    // =========================================================================
+
     private List<string> FindCopyZip(string query)
     {
-        // query 可以是文件名（精确）、*.zip（通配）或空（fallback 全部）
         if (string.IsNullOrWhiteSpace(query))
             return Directory.GetFiles(_copyPath, "*.zip", SearchOption.TopDirectoryOnly).ToList();
 
-        // 精确匹配
         var full = Path.Combine(_copyPath, query);
         if (File.Exists(full)) return new List<string> { full };
 
-        // 通配符匹配 *.zip
         if (query.Contains('*'))
             return Directory.GetFiles(_copyPath, query, SearchOption.TopDirectoryOnly).ToList();
 
-        // 前缀匹配 *.zip
-        return Directory.GetFiles(_copyPath, $"{query}*.zip", SearchOption.TopDirectoryOnly)
-                        .ToList();
+        return Directory.GetFiles(_copyPath, $"{query}*.zip", SearchOption.TopDirectoryOnly).ToList();
     }
 
-    // 旧版兼容
     public void ExecuteCopyStep(Step step, ILogger logger) => ExecuteCopy(step, logger);
-
-    // =========================================================================
-    //  基础文件操作（保持 API 不变）
-    // =========================================================================
 
     public void BackupFile(string relativePath, ILogger logger)
     {
@@ -420,10 +475,6 @@ public class FileManager
         logger.LogSuccess($"{src} -> {dst}");
     }
 
-    // =========================================================================
-    //  私有辅助
-    // =========================================================================
-
     private IEnumerable<string> ResolveBgi(string path)
     {
         var trimmed = path.TrimEnd('/', '\\');
@@ -451,32 +502,11 @@ public class FileManager
         yield return path;
     }
 
-    /// <summary>
-    /// 将绝对路径转为 JsScript 根目录下的相对路径；
-    /// 用完整前缀（含尾部 \）匹配，零字符偏移误差，中文路径不截断。
-    /// </summary>
     private string MakeRel(string fullPath)
     {
-        // GetFullPath("") = E:\...\BetterGI\User\JsScript  末尾不加 \；
-        // 构造带尾部分隔符的前缀，IndexOf 精确找到前缀结束位置
-        var prefix = GetFullPath("") + "\\";   // E:\...\JsScript\
+        var prefix = GetFullPath("") + "\\";
         if (!fullPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
             return fullPath;
         return fullPath.Substring(prefix.Length).Replace('\\', '/');
-    }
-
-    private int CopyTreeOverwrite(string srcDir, string dstDir, ILogger? logger = null)
-    {
-        int n = 0;
-        foreach (var file in Directory.GetFiles(srcDir, "*", SearchOption.AllDirectories))
-        {
-            var rel = Path.GetRelativePath(srcDir, file);
-            var dest = Path.Combine(dstDir, rel);
-            Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
-            File.Copy(file, dest, true);
-            n++;
-            logger?.LogSuccess($"copy 解压覆盖: {file} -> {dest}");
-        }
-        return n;
     }
 }

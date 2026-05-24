@@ -12,6 +12,7 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
@@ -54,20 +55,20 @@
         <!-- Row 4: 还原分割线 -->
         <Separator Grid.Row="4" Grid.ColumnSpan="2" Margin="0,4,0,6"/>
 
-        <!-- Row 5: 还原下拉框 -->
+        <!-- Row 5: 备份标签 -->
         <TextBlock Grid.Row="5" Text="选择备份:" VerticalAlignment="Center"
-                   Margin="0,0,6,0"/>
-        <ComboBox Grid.Row="5" Grid.Column="1" x:Name="RestoreCombo"
-                  IsEditable="False" IsEnabled="False"
-                  VerticalAlignment="Center" Margin="0,0,0,0"
-                  ToolTip="列出 backup 目录中的所有压缩包"/>
+                   Margin="0,0,6,4"/>
 
-        <!-- Row 6: 执行还原按钮 -->
-        <Button Grid.Row="6" x:Name="ExecuteRestoreBtn" Grid.Column="1"
-                Content="执行还原" Width="80"
-                HorizontalAlignment="Right" VerticalAlignment="Center"
-                Margin="0,0,0,6"
-                Click="ExecuteRestoreBtn_Click"/>
+        <!-- Row 6: 备份Combo + 执行还原按钮 -->
+        <ComboBox Grid.Row="6" x:Name="RestoreCombo"
+                  IsEditable="False" IsEnabled="False"
+                  VerticalAlignment="Center" Margin="0,0,6,8"
+                  ToolTip="列出 backup 目录中的所有压缩包"/>
+        <StackPanel Grid.Row="6" Grid.Column="1" Orientation="Horizontal"
+                    VerticalAlignment="Center">
+            <Button x:Name="ExecuteRestoreBtn" Content="执行还原" Width="80"
+                    Click="ExecuteRestoreBtn_Click"/>
+        </StackPanel>
 
         <!-- Row 7: 日志 -->
         <Border Grid.Row="7" Grid.ColumnSpan="2"

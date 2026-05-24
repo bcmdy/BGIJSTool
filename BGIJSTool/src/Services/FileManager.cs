@@ -461,6 +461,24 @@ public class FileManager
         }
         File.Delete(full);
         logger.LogSuccess(full);
+
+        // 清理空文件夹
+        var dir = Path.GetDirectoryName(full);
+        while (!string.IsNullOrEmpty(dir) && dir != GetFullPath(""))
+        {
+            try
+            {
+                if (Directory.GetFiles(dir).Length == 0 && Directory.GetDirectories(dir).Length == 0)
+                    Directory.Delete(dir);
+                else
+                    break;
+            }
+            catch
+            {
+                break;
+            }
+            dir = Path.GetDirectoryName(dir);
+        }
     }
 
     public void RestoreFile(string relativePath, ILogger logger)

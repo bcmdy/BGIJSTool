@@ -22,7 +22,9 @@ namespace BGIJSTool.Services
             }
 
             var json = File.ReadAllText(_configPath);
-            _config = JsonSerializer.Deserialize<Config>(json) ?? new Config();
+            var options = new JsonSerializerOptions();
+            options.Converters.Add(new Models.ConfigConverter());
+            _config = JsonSerializer.Deserialize<Config>(json, options) ?? new Config();
             return _config;
         }
 
@@ -39,7 +41,9 @@ namespace BGIJSTool.Services
         public void SaveBGIPath(string path)
         {
             _config.BGIpath = path;
-            var json = JsonSerializer.Serialize(_config, new JsonSerializerOptions { WriteIndented = true });
+            var options = new JsonSerializerOptions { WriteIndented = true };
+            options.Converters.Add(new Models.ConfigConverter());
+            var json = JsonSerializer.Serialize(_config, options);
             File.WriteAllText(_configPath, json);
         }
 

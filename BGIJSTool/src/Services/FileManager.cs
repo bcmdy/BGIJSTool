@@ -23,7 +23,8 @@ public class FileManager
 
     private record RestoreEntry(
         [property: JsonPropertyName("op")] string Op,
-        [property: JsonPropertyName("srcPaths")] List<string> SrcPaths);
+        [property: JsonPropertyName("srcPaths")] List<string> SrcPaths,
+        [property: JsonPropertyName("deletedPaths")] List<string>? DeletedPaths = null);
 
     private record RestoreManifest(
         [property: JsonPropertyName("moduleName")] string ModuleName,
@@ -129,7 +130,7 @@ public class FileManager
                 createdAt = DateTime.Now.ToString("yyyyMMddTHHmmss"),
                 restore = new[]
                 {
-                    new { op = "bak+del", srcPaths = baked.ToList() }
+                    new { op = "restore", srcPaths = baked.ToList(), deletedPaths = new List<string>() }
                 }
             };
             File.WriteAllText(
@@ -189,8 +190,25 @@ public class FileManager
                     logger.LogInfo($"还原清单: {manifest.ModuleName}  (创建于 {manifest.CreatedAt})");
                     foreach (var entry in entries)
                     {
-                        if (entry.Op.StartsWith("bak+del"))
+                        if (entry.Op == "restore")
                         {
+                            // 先删除目标目录中由 copy 产生的旧文件（不在 srcPaths 范围内的文件）
+                            var srcPathsSet = new HashSet<string>(entry.SrcPaths.Select(p => p.Replace('/', Path.DirectorySeparatorChar)));
+                            var allFilesInTarget = Directory.GetFiles(GetFullPath(""), "*", SearchOption.AllDirectories);
+                            foreach (var existingFile in allFilesInTarget)
+                            {
+                                try
+                                {
+                                    var relPath = existingFile.Substring(GetFullPath("").Length + 1).Replace('\\', '/');
+                                    if (!existingFile.EndsWith("_restore_manifest.json", StringComparison.OrdinalIgnoreCase) && !srcPathsSet.Contains(relPath))
+                                    {
+                                        File.Delete(existingFile);
+                                        logger.LogInfo($"清理旧文件: {relPath}");
+                                    }
+                                }
+                                catch { }
+                            }
+
                             foreach (var rp in entry.SrcPaths)
                             {
                                 var src = Path.Combine(tmpDir, rp.Replace('/', Path.DirectorySeparatorChar));

@@ -157,7 +157,7 @@ if ($LASTEXITCODE -ne 0) {
 Write-Ok "发布完成"
 
 # ── 结果输出 ──
-Write-Header "Step 4/4 - 发布结果"
+Write-Header "Step 4/5 - 发布结果"
 
 $ExePath = Join-Path $PublishDir "BGIJSTool.exe"
 if (Test-Path $ExePath) {
@@ -189,6 +189,27 @@ if ($DllCount -eq 0 -and (Test-Path $ExePath)) {
     Write-Warn "检测到 $DllCount 个 DLL 文件，单文件提取模式可能未生效"
 }
 
+# ── 复制辅助文件 ──
+Write-Header "Step 5/5 - 复制辅助文件"
+
+$CopySource = Join-Path $ScriptDir "copy"
+$ConfigSource = Join-Path $ScriptDir "src\config.json"
+
+if (Test-Path $CopySource) {
+    $CopyDest = Join-Path $PublishDir "copy"
+    robocopy $CopySource $CopyDest /E /NFL /NDL | Out-Null
+    Write-Ok "已复制 copy 文件夹"
+} else {
+    Write-Warn "未找到 copy 文件夹"
+}
+
+if (Test-Path $ConfigSource) {
+    Copy-Item $ConfigSource (Join-Path $PublishDir "config.json") -Force
+    Write-Ok "已复制 config.json"
+} else {
+    Write-Warn "未找到 config.json"
+}
+
 # ── 使用说明 ──
 Write-Host "`n========================================" -ForegroundColor Green
 Write-Host "编译完成!" -ForegroundColor Green
@@ -199,3 +220,5 @@ if (-not $SelfContained) {
     Write-Host "      目标机器必须安装 .NET 运行时才能运行此程序" -ForegroundColor Yellow
     Write-Host "      如需独立运行，请使用: .\build.ps1 -SelfContained" -ForegroundColor Yellow
 }
+
+Write-Ok "编译流程完成"

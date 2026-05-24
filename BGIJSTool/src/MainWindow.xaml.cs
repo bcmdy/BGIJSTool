@@ -241,6 +241,51 @@ namespace BGIJSTool
             }
         }
 
+        private void DeleteBackupBtn_Click(object sender, RoutedEventArgs e)
+        {
+            if (RestoreCombo.SelectedItem is not string zipFileName
+                || string.IsNullOrEmpty(zipFileName))
+            {
+                _logger.LogWarning("请先选择一个备份压缩包");
+                return;
+            }
+
+            var result = MessageBox.Show($"确定要删除备份 {zipFileName} 吗？\n此操作不可撤销。",
+                "确认删除", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            if (result != MessageBoxResult.Yes) return;
+
+            StatusText.Text = "删除中…";
+            ExecuteBtn.IsEnabled = false;
+            DeleteBackupBtn.IsEnabled = false;
+
+            try
+            {
+                var backupPath = Path.Combine(_programPath, "backup", zipFileName);
+                if (File.Exists(backupPath))
+                {
+                    File.Delete(backupPath);
+                    _logger.LogSuccess($"已删除备份: {zipFileName}");
+                    StatusText.Text = "删除完成";
+                }
+                else
+                {
+                    _logger.LogWarning($"备份文件不存在: {backupPath}");
+                    StatusText.Text = "删除失败";
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"删除失败: {ex.Message}");
+                StatusText.Text = "删除失败";
+            }
+            finally
+            {
+                ExecuteBtn.IsEnabled = true;
+                DeleteBackupBtn.IsEnabled = true;
+                PopulateRestoreCombo();
+            }
+        }
+
         // ── 还原 ComboBox ──────────────────────────────────────────────────
 
         private const string RestorePlaceholder = "（无备份）";

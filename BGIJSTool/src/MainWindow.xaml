@@ -59,7 +59,7 @@
         <TextBlock Grid.Row="5" Text="选择备份:" VerticalAlignment="Center"
                    Margin="0,0,6,4"/>
 
-        <!-- Row 6: 备份Combo + 执行还原按钮 -->
+        <!-- Row 6: 备份Combo + 执行还原/删除按钮 -->
         <ComboBox Grid.Row="6" x:Name="RestoreCombo"
                   IsEditable="False" IsEnabled="False"
                   VerticalAlignment="Center" Margin="0,0,6,8"
@@ -67,7 +67,9 @@
         <StackPanel Grid.Row="6" Grid.Column="1" Orientation="Horizontal"
                     VerticalAlignment="Center">
             <Button x:Name="ExecuteRestoreBtn" Content="执行还原" Width="80"
-                    Click="ExecuteRestoreBtn_Click"/>
+                    Click="ExecuteRestoreBtn_Click" Margin="0,0,4,0"/>
+            <Button x:Name="DeleteBackupBtn" Content="删除" Width="80"
+                    Click="DeleteBackupBtn_Click"/>
         </StackPanel>
 
         <!-- Row 7: 日志 -->

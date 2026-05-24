@@ -23,8 +23,8 @@ public class FileManager
 
     private record RestoreEntry(
         [property: JsonPropertyName("op")] string Op,
-        [property: JsonPropertyName("srcPaths")] List<string> SrcPaths,
-        [property: JsonPropertyName("deletedPaths")] List<string>? DeletedPaths = null);
+        [property: JsonPropertyName("srcPaths")] List<string>? SrcPaths = null,
+        [property: JsonPropertyName("paths")] List<string>? Paths = null);
 
     private record RestoreManifest(
         [property: JsonPropertyName("moduleName")] string ModuleName,
@@ -125,7 +125,7 @@ public class FileManager
         }
 
         // 收集 copy zip 中的文件列表（用于 restore 时清理）
-        var deletedPaths = new List<string>();
+        var copyDeletedPaths = new List<string>();
         foreach (var cp in copyPaths)
         {
             var zipFile = Path.Combine(_copyPath, cp);
@@ -138,22 +138,31 @@ public class FileManager
                 foreach (ZipEntry entry in zf)
                 {
                     if (!entry.IsDirectory)
-                        deletedPaths.Add(entry.Name.Replace('\\', '/'));
+                        copyDeletedPaths.Add(entry.Name.Replace('\\', '/'));
                 }
             }
             catch { }
         }
 
+        var restoreEntries = new List<object>();
+
+        if (copyDeletedPaths.Count > 0)
+        {
+            restoreEntries.Add(new { op = "del", paths = copyDeletedPaths });
+        }
+
         if (baked.Count > 0)
+        {
+            restoreEntries.Add(new { op = "restore", srcPaths = baked.ToList() });
+        }
+
+        if (restoreEntries.Count > 0)
         {
             var manifest = new
             {
                 moduleName = zipName,
                 createdAt = DateTime.Now.ToString("yyyyMMddTHHmmss"),
-                restore = new[]
-                {
-                    new { op = "restore", srcPaths = baked.ToList(), deletedPaths = deletedPaths }
-                }
+                restore = restoreEntries
             };
             File.WriteAllText(
                 Path.Combine(tmpDir, "_restore_manifest.json"),
@@ -212,21 +221,16 @@ public class FileManager
                     logger.LogInfo($"还原清单: {manifest.ModuleName}  (创建于 {manifest.CreatedAt})");
                     foreach (var entry in entries)
                     {
-                        if (entry.Op == "restore")
+                        if (entry.Op == "del")
                         {
-                            // 先删除 delPaths 中记录的文件（由 copy 产生的旧文件）
-                            var deletedSet = new HashSet<string>(entry.DeletedPaths?.Select(p => p.Replace('/', Path.DirectorySeparatorChar)) ?? Enumerable.Empty<string>());
-                            foreach (var delPath in entry.DeletedPaths ?? new List<string>())
+                            foreach (var p in entry.Paths ?? new List<string>())
                             {
-                                var full = GetFullPath(delPath);
-                                if (File.Exists(full))
-                                {
-                                    File.Delete(full);
-                                    logger.LogInfo($"清理旧文件: {delPath}");
-                                }
+                                DeleteFile(p, logger);
                             }
-
-                            foreach (var rp in entry.SrcPaths)
+                        }
+                        else if (entry.Op == "restore")
+                        {
+                            foreach (var rp in entry.SrcPaths ?? new List<string>())
                             {
                                 var src = Path.Combine(tmpDir, rp.Replace('/', Path.DirectorySeparatorChar));
                                 var dst = GetFullPath(rp);

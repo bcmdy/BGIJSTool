@@ -14,32 +14,20 @@ namespace BGIJSTool.Models
 
     public class Config
     {
-        [JsonPropertyName("BGIpath")]
         public string BGIpath { get; set; } = string.Empty;
-
-        [JsonPropertyName("modules")]
         public List<Module> modules { get; set; } = new();
     }
 
     public class Module
     {
-        [JsonPropertyName("name")]
         public string name { get; set; } = string.Empty;
-
-        /// <summary>有序步骤列表，排列顺序即为执行顺序；仅支持新数组格式 [{op, paths}, …]</summary>
-        [JsonPropertyName("files")]
         public List<Step> Steps { get; set; } = new();
     }
 
     public class Step
     {
-        /// <summary>操作类型</summary>
-        [JsonPropertyName("op")]
         [JsonConverter(typeof(JsonStringEnumConverter))]
         public OpType op { get; set; }
-
-        /// <summary>当前操作对应的文件相对路径列表</summary>
-        [JsonPropertyName("paths")]
         public List<string> paths { get; set; } = new();
     }
 
@@ -72,7 +60,6 @@ namespace BGIJSTool.Models
         {
             writer.WriteStartObject();
             writer.WriteString("name", value.name);
-
             writer.WritePropertyName("files");
             writer.WriteStartArray();
             foreach (var step in value.Steps)
@@ -84,7 +71,6 @@ namespace BGIJSTool.Models
                 writer.WriteEndObject();
             }
             writer.WriteEndArray();
-
             writer.WriteEndObject();
         }
     }

@@ -404,29 +404,19 @@ public class FileManager
     {
         if (string.IsNullOrEmpty(text)) return false;
 
-        // 1. Unicode 替换字符 U+FFFD
-        if (text.Contains('�')) return true;
+        if (text.Contains('�')) return true;  // Unicode 替换字符
+        if (text.Contains('锟')) return true;     // 锟斤拷系列乱码
 
-        // 2. 常见乱码模式（锟斤拷系列）
-        if (text.Contains('锟')) return true;
-
-        // 3. 检测是否有大量希腊字母/西里尔字母等（UTF-8 多字节被拆散后的常见特征）
-        //    比如 "β·" 这种就是典型的 UTF-8 字节被当成 Latin-1 后的结果
         int suspiciousCount = 0;
         foreach (var c in text)
         {
-            // 希腊字母范围 U+0370-U+03FF
-            if (c >= 'Ͱ' && c <= 'Ͽ') suspiciousCount++;
-            // 西里尔字母范围 U+0400-U+04FF
-            if (c >= 'Ѐ' && c <= 'ӿ') suspiciousCount++;
-            // 控制字符（除正常换行制表）
+            // 希腊字母 U+0370-U+03FF, 西里尔字母 U+0400-U+04FF
+            if ((c >= 'Ͱ' && c <= 'Ͽ') || (c >= 'Ѐ' && c <= 'ӿ'))
+                suspiciousCount++;
             if (c < 32 && c is not ('\r' or '\n' or '\t')) return true;
         }
 
-        // 如果希腊/西里尔字母占比过高，认为是乱码
-        if (text.Length > 0 && suspiciousCount > text.Length / 4) return true;
-
-        return false;
+        return text.Length > 0 && suspiciousCount > text.Length / 4;
     }
 
     /// <summary>

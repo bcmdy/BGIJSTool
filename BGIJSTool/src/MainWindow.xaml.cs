@@ -48,27 +48,15 @@ namespace BGIJSTool
             }
         }
 
-        /// <returns>true 当 BetterGI.exe 存在</returns>
+        /// <summary>更新 BGI 路径显示，返回 exe 是否存在</summary>
         private bool UpdateBGIPathDisplay(string path)
-        {
-            bool exeFound = UpdateBGIPathDisplayInternal(path);
-            return exeFound;
-        }
-
-        /// <summary>实际更新 UI，返回 exe 是否存在</summary>
-        private bool UpdateBGIPathDisplayInternal(string path)
         {
             string exePath = FindBetterGIExe(path);
             bool exeFound = !string.IsNullOrEmpty(exePath);
 
-            if (exeFound)
-            {
-                BGIPathText.Text = $"BetterGI.exe: {exePath}";
-            }
-            else
-            {
-                BGIPathText.Text = $"BetterGI 路径: {path}  ⚠ 未找到 BetterGI.exe，请重新选择";
-            }
+            BGIPathText.Text = exeFound
+                ? $"BetterGI.exe: {exePath}"
+                : $"BetterGI 路径: {path}  ⚠ 未找到 BetterGI.exe，请重新选择";
             BGIPathText.Foreground = _configService.IsValidPath() && exeFound
                 ? System.Windows.Media.Brushes.Black
                 : System.Windows.Media.Brushes.Red;

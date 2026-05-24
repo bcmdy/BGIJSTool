@@ -28,18 +28,12 @@ namespace BGIJSTool.Services
 
         public bool IsValidPath()
         {
-            return !string.IsNullOrEmpty(_config?.BGIpath) && Directory.Exists(_config.BGIpath);
+            return !string.IsNullOrEmpty(_config.BGIpath) && Directory.Exists(_config.BGIpath);
         }
 
-        public string GetBGIPath()
-        {
-            return _config?.BGIpath ?? string.Empty;
-        }
+        public string GetBGIPath() => _config.BGIpath;
 
-        public System.Collections.Generic.List<Models.Module> GetModules()
-        {
-            return _config?.modules ?? new();
-        }
+        public System.Collections.Generic.List<Models.Module> GetModules() => _config.modules;
 
         /// <summary>将 BGIpath 写回 config.json</summary>
         public void SaveBGIPath(string path)

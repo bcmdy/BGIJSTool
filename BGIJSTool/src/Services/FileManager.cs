@@ -61,21 +61,21 @@ public class FileManager
 
         bool hasBak = false;
         var bakPaths = new HashSet<string>();
-        var delPaths = new List<string>();
+        var copyPaths = new List<string>();
 
         foreach (var step in moduleSteps)
         {
             if (step.op is OpType.bak or OpType.del)
                 foreach (var p in step.paths) bakPaths.Add(p);
             if (step.op == OpType.bak) hasBak = true;
-            if (step.op == OpType.del) delPaths.AddRange(step.paths);
+            if (step.op == OpType.copy) copyPaths.AddRange(step.paths);
         }
 
         if (hasBak && bakPaths.Count > 0)
         {
             var zipLabel = "backup";
             try { zipLabel = moduleSteps.First().paths.FirstOrDefault() ?? "backup"; } catch { }
-            CreateBakZip(bakPaths.ToList(), delPaths, zipLabel, logger);
+            CreateBakZip(bakPaths.ToList(), copyPaths, zipLabel, logger);
         }
 
         foreach (var step in moduleSteps)
@@ -101,7 +101,7 @@ public class FileManager
     //  bak
     // =========================================================================
 
-    public void CreateBakZip(List<string> allPaths, List<string> delPaths, string zipName, ILogger logger)
+    public void CreateBakZip(List<string> allPaths, List<string> copyPaths, string zipName, ILogger logger)
     {
         var ts = DateTime.Now.ToString("yyyyMMdd_HHmmss");
         var zipFn = string.IsNullOrEmpty(zipName) ? $"backup_{ts}.zip" : $"{zipName}_{ts}.zip";
@@ -124,12 +124,24 @@ public class FileManager
             }
         }
 
-        // 收集 del 操作删除的文件路径（用于 restore 时清理）
+        // 收集 copy zip 中的文件列表（用于 restore 时清理）
         var deletedPaths = new List<string>();
-        foreach (var path in delPaths)
+        foreach (var cp in copyPaths)
         {
-            foreach (var resolved in ResolveBgi(path))
-                deletedPaths.Add(resolved);
+            var zipFile = Path.Combine(_copyPath, cp);
+            if (!File.Exists(zipFile)) continue;
+
+            try
+            {
+                using var fs = File.OpenRead(zipFile);
+                using var zf = new ICSharpCode.SharpZipLib.Zip.ZipFile(fs);
+                foreach (ZipEntry entry in zf)
+                {
+                    if (!entry.IsDirectory)
+                        deletedPaths.Add(entry.Name.Replace('\\', '/'));
+                }
+            }
+            catch { }
         }
 
         if (baked.Count > 0)

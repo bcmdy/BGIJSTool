@@ -61,19 +61,21 @@ public class FileManager
 
         bool hasBak = false;
         var bakPaths = new HashSet<string>();
+        var delPaths = new List<string>();
 
         foreach (var step in moduleSteps)
         {
             if (step.op is OpType.bak or OpType.del)
                 foreach (var p in step.paths) bakPaths.Add(p);
             if (step.op == OpType.bak) hasBak = true;
+            if (step.op == OpType.del) delPaths.AddRange(step.paths);
         }
 
         if (hasBak && bakPaths.Count > 0)
         {
             var zipLabel = "backup";
             try { zipLabel = moduleSteps.First().paths.FirstOrDefault() ?? "backup"; } catch { }
-            CreateBakZip(bakPaths.ToList(), zipLabel, logger);
+            CreateBakZip(bakPaths.ToList(), delPaths, zipLabel, logger);
         }
 
         foreach (var step in moduleSteps)
@@ -99,7 +101,7 @@ public class FileManager
     //  bak
     // =========================================================================
 
-    public void CreateBakZip(List<string> allPaths, string zipName, ILogger logger)
+    public void CreateBakZip(List<string> allPaths, List<string> delPaths, string zipName, ILogger logger)
     {
         var ts = DateTime.Now.ToString("yyyyMMdd_HHmmss");
         var zipFn = string.IsNullOrEmpty(zipName) ? $"backup_{ts}.zip" : $"{zipName}_{ts}.zip";
@@ -122,6 +124,14 @@ public class FileManager
             }
         }
 
+        // 收集 del 操作删除的文件路径（用于 restore 时清理）
+        var deletedPaths = new List<string>();
+        foreach (var path in delPaths)
+        {
+            foreach (var resolved in ResolveBgi(path))
+                deletedPaths.Add(resolved);
+        }
+
         if (baked.Count > 0)
         {
             var manifest = new
@@ -130,7 +140,7 @@ public class FileManager
                 createdAt = DateTime.Now.ToString("yyyyMMddTHHmmss"),
                 restore = new[]
                 {
-                    new { op = "restore", srcPaths = baked.ToList(), deletedPaths = new List<string>() }
+                    new { op = "restore", srcPaths = baked.ToList(), deletedPaths = deletedPaths }
                 }
             };
             File.WriteAllText(
@@ -192,21 +202,16 @@ public class FileManager
                     {
                         if (entry.Op == "restore")
                         {
-                            // 先删除目标目录中由 copy 产生的旧文件（不在 srcPaths 范围内的文件）
-                            var srcPathsSet = new HashSet<string>(entry.SrcPaths.Select(p => p.Replace('/', Path.DirectorySeparatorChar)));
-                            var allFilesInTarget = Directory.GetFiles(GetFullPath(""), "*", SearchOption.AllDirectories);
-                            foreach (var existingFile in allFilesInTarget)
+                            // 先删除 delPaths 中记录的文件（由 copy 产生的旧文件）
+                            var deletedSet = new HashSet<string>(entry.DeletedPaths?.Select(p => p.Replace('/', Path.DirectorySeparatorChar)) ?? Enumerable.Empty<string>());
+                            foreach (var delPath in entry.DeletedPaths ?? new List<string>())
                             {
-                                try
+                                var full = GetFullPath(delPath);
+                                if (File.Exists(full))
                                 {
-                                    var relPath = existingFile.Substring(GetFullPath("").Length + 1).Replace('\\', '/');
-                                    if (!existingFile.EndsWith("_restore_manifest.json", StringComparison.OrdinalIgnoreCase) && !srcPathsSet.Contains(relPath))
-                                    {
-                                        File.Delete(existingFile);
-                                        logger.LogInfo($"清理旧文件: {relPath}");
-                                    }
+                                    File.Delete(full);
+                                    logger.LogInfo($"清理旧文件: {delPath}");
                                 }
-                                catch { }
                             }
 
                             foreach (var rp in entry.SrcPaths)

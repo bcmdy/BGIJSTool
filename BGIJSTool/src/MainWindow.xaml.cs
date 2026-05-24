@@ -158,6 +158,7 @@ namespace BGIJSTool
 
                 // 先第一遍扫描：收集 bak+del 路径，统计文件总数，决定是否需备份
                 var bakPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var delPaths = new List<string>();
                 bool hasBak = false;
                 foreach (var s in moduleSteps)
                 {
@@ -165,13 +166,14 @@ namespace BGIJSTool
                     if (s.op is OpType.bak or OpType.del)
                         foreach (var p in s.paths) bakPaths.Add(p);
                     if (s.op == OpType.bak) hasBak = true;
+                    if (s.op == OpType.del) delPaths.AddRange(s.paths);
                 }
 
                 // 先备份（在删除之前，确保源文件还在）
                 if (hasBak && bakPaths.Count > 0)
                 {
                     _logger.LogInfo($"模块备份: {module.name}，共 {bakPaths.Count} 条路径");
-                    _fileManager.CreateBakZip(bakPaths.ToList(), module.name, _logger);
+                    _fileManager.CreateBakZip(bakPaths.ToList(), delPaths, module.name, _logger);
                 }
 
                 // 再执行具体操作

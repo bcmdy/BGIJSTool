@@ -33,16 +33,24 @@
 ```
 BGITools/
 ├── BGIJSTool/
-│   ├── SPEC.md          # 详细规格说明书（替代旧的 SEPC.md）
+│   ├── SPEC.md               # 详细规格说明书
+│   ├── build.ps1             # 编译脚本（自动复制 copy 和 config.json）
 │   ├── src/
+│   │   ├── BGIJSTool.csproj
+│   │   ├── icon.ico          # 应用图标
 │   │   ├── MainWindow.xaml
-│   │   ├── Step.cs      # 等序列化表示
-│   │   ├── FileManager.cs  # 核心文件操作
-│   │   └── ...
-│   ├── config.json      # 实际配置文件（编译/运行时用）
-│   ├── backup/          # 执行前备份该文件目录
+│   │   ├── MainWindow.xaml.cs
+│   │   ├── Models/
+│   │   │   └── Config.cs     # 配置模型
+│   │   ├── Services/
+│   │   │   ├── ConfigService.cs
+│   │   │   ├── FileManager.cs  # 核心文件操作
+│   │   │   ├── ILogger.cs
+│   │   │   └── Logger.cs
+│   │   └── config.json       # 实际配置文件（运行时用）
+│   ├── copy/                 # 脚本修改压缩包目录
 │   └── BGIJSTool.slnx
-└── README.md            # 本文件
+└── README.md                 # 本文件
 ```
 
 ---
@@ -87,9 +95,19 @@ BGITools/
 ## 📝 开发
 
 ```bash
-cd BGIJSTool
+cd BGIJSTool/src
 dotnet run
 ```
+
+## 🔨 编译
+
+```powershell
+cd BGIJSTool
+.\build.ps1          # 框架依赖单文件（推荐）
+.\build.ps1 -SelfContained  # 自包含单文件
+```
+
+编译后 `copy/` 和 `config.json` 会自动复制到 `publish/` 目录。
 
 ---
 

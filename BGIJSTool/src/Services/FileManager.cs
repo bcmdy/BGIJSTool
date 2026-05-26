@@ -358,7 +358,7 @@ public class FileManager
             entryStream.CopyTo(fileStream);
 
             copied++;
-            logger.LogSuccess($"copy 解压覆盖: {entryName} -> {targetPath}");
+            logger.LogSuccess($"解压覆盖: {entryName} -> {targetPath}");
         }
 
         return copied;
@@ -489,7 +489,7 @@ public class FileManager
             return;
         }
         File.Delete(full);
-        logger.LogSuccess(full);
+        logger.LogSuccess($"删除: {relativePath}");
 
         // 清理空文件夹
         var dir = Path.GetDirectoryName(full);

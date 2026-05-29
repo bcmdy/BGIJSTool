@@ -1,6 +1,6 @@
 # .NET build outputs
-BGIJSTool/src/bin/
-BGIJSTool/src/obj/
+bin/
+obj/
 
 # Build artifacts
 /**.exe

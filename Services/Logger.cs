@@ -73,7 +73,7 @@ namespace BGIJSTool.Services
 
         private void AppendToFile(string text)
         {
-            File.AppendAllText(_logFilePath, text);
+            File.AppendAllText(_logFilePath, text, Encoding.UTF8);
         }
     }
 }

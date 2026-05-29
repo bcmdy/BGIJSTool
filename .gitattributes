@@ -1,2 +1,8 @@
 # Auto detect text files and perform LF normalization
-* text=auto
+# Force LF line endings for consistent cross-platform behavior
+* text=auto eol=lf
+
+# Binary files
+*.zip binary
+*.exe binary
+*.dll binary

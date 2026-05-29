@@ -157,7 +157,7 @@ if ($LASTEXITCODE -ne 0) {
 Write-Ok "发布完成"
 
 # ── 结果输出 ──
-Write-Header "Step 4/5 - 发布结果"
+Write-Header "Step 4/4 - 发布结果"
 
 $ExePath = Join-Path $PublishDir "BGIJSTool.exe"
 if (Test-Path $ExePath) {
@@ -193,7 +193,7 @@ if ($DllCount -eq 0 -and (Test-Path $ExePath)) {
 Write-Header "Step 5/5 - 复制辅助文件"
 
 $CopySource = Join-Path $ScriptDir "copy"
-$ConfigSource = Join-Path $ScriptDir "src\config.json"
+$ConfigSource = Join-Path $ScriptDir "config.json"
 
 if (Test-Path $CopySource) {
     $CopyDest = Join-Path $PublishDir "copy"

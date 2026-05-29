@@ -1,0 +1,118 @@
+name: Build and Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      self_contained:
+        description: 'Self-contained deployment (includes .NET runtime)'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Determine build mode
+      id: build_mode
+      run: |
+        echo "self_contained=${{ inputs.self_contained }}" >> $env:GITHUB_OUTPUT
+        # 获取版本号
+        if ("${{ github.event.release.tag_name }}") {
+          echo "version=${{ github.event.release.tag_name }}" >> $env:GITHUB_OUTPUT
+        } elseif ("${{ github.ref_name }}") {
+          echo "version=${{ github.ref_name }}" >> $env:GITHUB_OUTPUT
+        } else {
+          echo "version=dev" >> $env:GITHUB_OUTPUT
+        }
+
+    - name: Publish (Framework-Dependent)
+      if: steps.build_mode.outputs.self_contained != 'true'
+      run: |
+        dotnet publish BGIJSTool.csproj -c Release -r win-x64 `
+          -p:PublishSingleFile=true `
+          -p:SelfContained=false `
+          -p:IncludeNativeLibrariesForSelfExtract=true `
+          -p:DebugType=none `
+          -p:DebugSymbols=false `
+          --self-contained false `
+          -o ./publish
+
+    - name: Publish (Self-Contained)
+      if: steps.build_mode.outputs.self_contained == 'true'
+      run: |
+        dotnet publish BGIJSTool.csproj -c Release -r win-x64 `
+          -p:PublishSingleFile=true `
+          -p:SelfContained=true `
+          -p:PublishReadyToRun=true `
+          -p:IncludeNativeLibrariesForSelfExtract=true `
+          -p:EnableCompressionInSingleFile=true `
+          -p:TrimUnusedCode=true `
+          -p:DebugType=none `
+          -p:DebugSymbols=false `
+          --self-contained true `
+          -o ./publish
+
+    - name: Copy auxiliary files
+      run: |
+        if (Test-Path ./copy) { robocopy ./copy ./publish/copy /E /NFL /NDL | Out-Null }
+        if (Test-Path ./config.json) { Copy-Item ./config.json ./publish/config.json -Force }
+
+    - name: Create ZIP archive
+      run: Compress-Archive -Path ./publish/* -DestinationPath BGIJSTool.zip -Force
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: BGIJSTool-${{ steps.build_mode.outputs.version }}
+        path: BGIJSTool.zip
+        retention-days: 7
+
+  release:
+    needs: build
+    runs-on: windows-latest
+    if: github.event_name == 'release'
+    steps:
+    - name: Download artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: BGIJSTool-${{ github.event.release.tag_name }}
+        path: .
+
+    - name: Calculate SHA256
+      id: hash
+      run: |
+        $hash = (Get-FileHash -Algorithm SHA256 -Path ./BGIJSTool.zip).Hash.ToLower()
+        echo "sha256=$hash" >> $env:GITHUB_OUTPUT
+        echo "size=$([math]::Round((Get-Item ./BGIJSTool.zip).Length / 1MB, 2))" >> $env:GITHUB_OUTPUT
+
+    - name: Release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: BGIJSTool.zip
+        body: |
+          ## BGIJSTool v${{ github.event.release.tag_name }}
+
+          ### 📦 下载
+          - **BGIJSTool.zip** - 包含主程序和辅助文件
+
+          ### 📝 文件信息
+          - SHA256: `${{ steps.hash.outputs.sha256 }}`
+          - 大小: `${{ steps.hash.outputs.size }} MB`
+
+          ### 🚀 使用说明
+          1. 解压 BGIJSTool.zip
+          2. 运行 BGIJSTool.exe
+          3. 配置 BetterGI 路径和 config.json 后即可使用
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

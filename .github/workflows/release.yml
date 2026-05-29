@@ -64,11 +64,16 @@ jobs:
           -o ./publish
 
     - name: Copy auxiliary files
+      shell: pwsh
       run: |
-        if (Test-Path ./copy) { robocopy ./copy ./publish/copy /E /NFL /NDL | Out-Null }
-        if (Test-Path ./config.json) { Copy-Item ./config.json ./publish/config.json -Force }
+        if (Test-Path ./copy) {
+          New-Item -ItemType Directory -Force -Path ./publish/copy | Out-Null
+          Copy-Item -Path ./copy/* -Destination ./publish/copy -Recurse -Force
+        }
+        if (Test-Path ./config.json) { Copy-Item -Path ./config.json -Destination ./publish -Force }
 
     - name: Create ZIP archive
+      shell: pwsh
       run: Compress-Archive -Path ./publish/* -DestinationPath BGIJSTool.zip -Force
 
     - name: Upload artifact
@@ -91,10 +96,12 @@ jobs:
 
     - name: Calculate SHA256
       id: hash
+      shell: pwsh
       run: |
         $hash = (Get-FileHash -Algorithm SHA256 -Path ./BGIJSTool.zip).Hash.ToLower()
+        $size = [math]::Round((Get-Item ./BGIJSTool.zip).Length / 1MB, 2)
         echo "sha256=$hash" >> $env:GITHUB_OUTPUT
-        echo "size=$([math]::Round((Get-Item ./BGIJSTool.zip).Length / 1MB, 2))" >> $env:GITHUB_OUTPUT
+        echo "size=$size" >> $env:GITHUB_OUTPUT
 
     - name: Release
       uses: softprops/action-gh-release@v2

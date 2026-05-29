@@ -23,7 +23,7 @@
 ## 📋 Quick Start
 
 1. **设置 BetterGI 路径**：程序启动后右上角通过 "浏览…" 按钮选择 BetterGI.exe。
-2. **配置 `config.json`**：等参照 `BGIJSTool/SPEC.md` 撰写，内含操作顺序、路径、模块安排。
+2. **配置 `config.json`**：参照 `SPEC.md` 撰写，内含操作顺序、路径、模块安排。
 3. **十分 selon 需求选择操作**：点击 "手册操作" 下拉列表选择模做执行后点击 "执行"。
 
 ---
@@ -31,25 +31,22 @@
 ## 📁 Project Structure
 
 ```
-BGITools/
-├── BGIJSTool/
-│   ├── SPEC.md               # 详细规格说明书
-│   ├── build.ps1             # 编译脚本（自动复制 copy 和 config.json）
-│   ├── src/
-│   │   ├── BGIJSTool.csproj
-│   │   ├── icon.ico          # 应用图标
-│   │   ├── MainWindow.xaml
-│   │   ├── MainWindow.xaml.cs
-│   │   ├── Models/
-│   │   │   └── Config.cs     # 配置模型
-│   │   ├── Services/
-│   │   │   ├── ConfigService.cs
-│   │   │   ├── FileManager.cs  # 核心文件操作
-│   │   │   ├── ILogger.cs
-│   │   │   └── Logger.cs
-│   │   └── config.json       # 实际配置文件（运行时用）
-│   └── copy/                 # 脚本修改压缩包目录
-└── README.md                 # 本文件
+├── SPEC.md               # 详细规格说明书
+├── build.ps1             # 编译脚本（自动复制 copy 和 config.json）
+├── BGIJSTool.csproj
+├── icon.ico              # 应用图标
+├── MainWindow.xaml
+├── MainWindow.xaml.cs
+├── Models/
+│   └── Config.cs         # 配置模型
+├── Services/
+│   ├── ConfigService.cs
+│   ├── FileManager.cs    # 核心文件操作
+│   ├── ILogger.cs
+│   └── Logger.cs
+├── config.json           # 实际配置文件（运行时用）
+├── copy/                 # 脚本修改压缩包目录
+└── README.md             # 本文件
 ```
 
 ---
@@ -94,14 +91,12 @@ BGITools/
 ## 📝 开发
 
 ```bash
-cd BGIJSTool/src
 dotnet run
 ```
 
 ## 🔨 编译
 
 ```powershell
-cd BGIJSTool
 .\build.ps1          # 框架依赖单文件（推荐）
 .\build.ps1 -SelfContained  # 自包含单文件
 ```

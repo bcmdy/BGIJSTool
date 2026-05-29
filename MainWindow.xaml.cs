@@ -144,17 +144,32 @@ namespace BGIJSTool
                 var moduleSteps = module.Steps.ToList();
                 int totalFiles = 0;
 
-                // 先第一遍扫描：收集 bak+del 路径，统计文件总数，决定是否需备份
+                // 先第一遍扫描：收集 bak+del 路径（使用展开后的相对路径），决定是否需备份
                 var bakPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 var copyPaths = new List<string>();
                 bool hasBak = false;
                 foreach (var s in moduleSteps)
                 {
-                    totalFiles += s.paths.Count;
-                    if (s.op is OpType.bak or OpType.del)
-                        foreach (var p in s.paths) bakPaths.Add(p);
+                    if (s.op is OpType.bak or OpType.del or OpType.restore)
+                    {
+                        foreach (var p in s.paths)
+                        {
+                            var resolvedPaths = _fileManager.ResolveBgiPaths(p).ToList();
+                            totalFiles += resolvedPaths.Count;
+
+                            if (s.op is OpType.bak or OpType.del)
+                            {
+                                foreach (var resolved in resolvedPaths)
+                                    bakPaths.Add(resolved);
+                            }
+                        }
+                    }
                     if (s.op == OpType.bak) hasBak = true;
-                    if (s.op == OpType.copy) copyPaths.AddRange(s.paths);
+                    if (s.op == OpType.copy)
+                    {
+                        copyPaths.AddRange(s.paths);
+                        totalFiles += s.paths.Count;
+                    }
                 }
 
                 // 先备份（在删除之前，确保源文件还在）
@@ -311,14 +326,14 @@ namespace BGIJSTool
         private void ExecuteDel(Step step, ILogger logger)
         {
             foreach (var p in step.paths)
-                foreach (var resolved in ResolveBgi(p))
+                foreach (var resolved in _fileManager.ResolveBgiPaths(p))
                     _fileManager.DeleteFile(resolved, logger);
         }
 
         private void ExecuteRestore(Step step, ILogger logger)
         {
             foreach (var p in step.paths)
-                foreach (var resolved in ResolveBgi(p))
+                foreach (var resolved in _fileManager.ResolveBgiPaths(p))
                     _fileManager.RestoreFile(resolved, logger);
         }
 
@@ -326,42 +341,6 @@ namespace BGIJSTool
         {
             foreach (var p in step.paths)
                 _fileManager.ExecuteCopy(new Step { paths = new() { p } }, logger);
-        }
-
-        /// <summary>解析 BGI JsScript 路径（支持通配符、目录）</summary>
-        private IEnumerable<string> ResolveBgi(string path)
-        {
-            var trimmed = path.TrimEnd('/', '\\');
-
-            if (path.Contains('*'))
-            {
-                var baseDir = Path.GetDirectoryName(_fileManager.GetFullPath(trimmed))
-                                ?? _fileManager.GetFullPath("");
-                var pattern = Path.GetFileName(trimmed);
-                if (!Directory.Exists(baseDir)) yield break;
-                foreach (var f in Directory.GetFiles(baseDir, pattern, SearchOption.TopDirectoryOnly))
-                    yield return MakeRel(f);
-                yield break;
-            }
-
-            if (path.EndsWith("/") || path.EndsWith("\\")
-                || (Directory.Exists(_fileManager.GetFullPath(path))
-                    && !File.Exists(_fileManager.GetFullPath(trimmed))))
-            {
-                var dir = _fileManager.GetFullPath(trimmed);
-                if (!Directory.Exists(dir)) yield break;
-                foreach (var f in Directory.GetFiles(dir, "*", SearchOption.AllDirectories))
-                    yield return MakeRel(f);
-                yield break;
-            }
-
-            yield return path;
-        }
-
-        private static string MakeRel(string fullPath)
-        {
-            var rel = fullPath.Replace('\\', '/');
-            return rel.TrimStart('/');
         }
 
         /// <summary>

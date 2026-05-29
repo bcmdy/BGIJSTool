@@ -86,7 +86,7 @@ public class FileManager
                 case OpType.del: ExecuteDel(step.paths, logger); break;
                 case OpType.restore:
                     foreach (var p in step.paths)
-                        foreach (var resolved in ResolveBgi(p))
+                        foreach (var resolved in ResolveBgiPaths(p))
                             RestoreFile(resolved, logger);
                     break;
                 case OpType.copy: ExecuteCopy(step, logger); break;
@@ -113,7 +113,7 @@ public class FileManager
         var baked = new List<string>();
         foreach (var path in allPaths)
         {
-            foreach (var resolved in ResolveBgi(path))
+            foreach (var resolved in ResolveBgiPaths(path))
             {
                 var src = GetFullPath(resolved);
                 if (!File.Exists(src)) continue;
@@ -187,7 +187,7 @@ public class FileManager
     private void ExecuteDel(IEnumerable<string> paths, ILogger logger)
     {
         foreach (var p in paths)
-            foreach (var resolved in ResolveBgi(p))
+            foreach (var resolved in ResolveBgiPaths(p))
                 DeleteFile(resolved, logger);
     }
 
@@ -524,7 +524,11 @@ public class FileManager
         logger.LogSuccess($"{src} -> {dst}");
     }
 
-    private IEnumerable<string> ResolveBgi(string path)
+    /// <summary>
+    /// 解析 BGI JsScript 相对路径，支持通配符和目录展开。
+    /// 输入为相对于 {BGIpath}\User\JsScript\ 的相对路径，返回解析后的相对路径列表。
+    /// </summary>
+    public IEnumerable<string> ResolveBgiPaths(string path)
     {
         var trimmed = path.TrimEnd('/', '\\');
 
@@ -548,7 +552,8 @@ public class FileManager
             yield break;
         }
 
-        yield return path;
+        // 精确路径或文件路径：直接返回相对路径（确保使用正斜杠）
+        yield return path.Replace('\\', '/');
     }
 
     private string MakeRel(string fullPath)

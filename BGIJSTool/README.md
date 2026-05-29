@@ -48,8 +48,7 @@ BGITools/
 │   │   │   ├── ILogger.cs
 │   │   │   └── Logger.cs
 │   │   └── config.json       # 实际配置文件（运行时用）
-│   ├── copy/                 # 脚本修改压缩包目录
-│   └── BGIJSTool.slnx
+│   └── copy/                 # 脚本修改压缩包目录
 └── README.md                 # 本文件
 ```
 

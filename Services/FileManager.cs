@@ -104,7 +104,8 @@ public class FileManager
     public void CreateBakZip(List<string> allPaths, List<string> copyPaths, string zipName, ILogger logger)
     {
         var ts = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-        var zipFn = string.IsNullOrEmpty(zipName) ? $"backup_{ts}.zip" : $"{zipName}_{ts}.zip";
+        var safeName = SanitizeFileName(zipName);
+        var zipFn = string.IsNullOrEmpty(safeName) ? $"{ts}_backup.zip" : $"{ts}_{safeName}.zip";
         var zipFull = Path.Combine(_backupPath, zipFn);
 
         var tmpDir = Path.Combine(_backupPath, $"_tmp_bak_{Guid.NewGuid():N}");
@@ -196,6 +197,20 @@ public class FileManager
         try { Directory.Delete(tmpDir, true); } catch { }
 
         logger.LogSuccess($"备份完成（zip）: {zipFn}  共 {baked.Count} 个文件");
+    }
+
+    public static string SanitizeFileName(string fileName)
+    {
+        if (string.IsNullOrWhiteSpace(fileName))
+            return string.Empty;
+
+        var invalidChars = Path.GetInvalidFileNameChars();
+        var sanitized = new string(fileName
+            .Select(ch => invalidChars.Contains(ch) ? '_' : ch)
+            .ToArray());
+
+        sanitized = sanitized.Trim().TrimEnd('.');
+        return sanitized.Length == 0 ? string.Empty : sanitized;
     }
 
     // =========================================================================

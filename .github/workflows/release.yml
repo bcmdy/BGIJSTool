@@ -91,11 +91,35 @@ jobs:
     runs-on: windows-latest
     if: github.event_name == 'release'
     steps:
+    - name: Checkout with full history
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
     - name: Download artifact
       uses: actions/download-artifact@v4
       with:
         name: BGIJSTool-${{ github.event.release.tag_name }}
         path: .
+
+    - name: Generate changelog
+      id: changelog
+      shell: pwsh
+      run: |
+        # Get commits since the previous release tag
+        $currentTag = "${{ github.event.release.tag_name }}"
+        $tags = git tag --sort=-v:refname
+        $previousTag = ($tags | Where-Object { $_ -lt $currentTag } | Select-Object -First 1)
+        if ($previousTag) {
+          $commits = git log --oneline "$previousTag..$currentTag"
+        } else {
+          # Fallback: get last 20 commits
+          $commits = git log --oneline -20
+        }
+        $changelog = ($commits | ForEach-Object { "- $_" }) -join "`n"
+        echo "content<<EOF" >> $env:GITHUB_OUTPUT
+        echo "$changelog" >> $env:GITHUB_OUTPUT
+        echo "EOF" >> $env:GITHUB_OUTPUT
 
     - name: Calculate SHA256
       id: hash
@@ -112,6 +136,9 @@ jobs:
         files: BGIJSTool.zip
         body: |
           ## BGIJSTool v${{ github.event.release.tag_name }}
+
+          ### 📝 更新记录
+          ${{ steps.changelog.outputs.content }}
 
           ### 📦 下载
           - **BGIJSTool.zip** - 包含主程序和辅助文件

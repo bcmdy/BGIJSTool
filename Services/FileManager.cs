@@ -111,18 +111,30 @@ public class FileManager
         Directory.CreateDirectory(tmpDir);
 
         var baked = new List<string>();
+        var notFoundPaths = new List<string>();
         foreach (var path in allPaths)
         {
+            var resolvedAny = false;
             foreach (var resolved in ResolveBgiPaths(path))
             {
+                resolvedAny = true;
                 var src = GetFullPath(resolved);
-                if (!File.Exists(src)) continue;
+                if (!File.Exists(src))
+                {
+                    notFoundPaths.Add(resolved);
+                    continue;
+                }
                 var dest = Path.Combine(tmpDir, resolved.Replace('/', Path.DirectorySeparatorChar));
                 Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
                 File.Copy(src, dest, true);
                 baked.Add(resolved);
             }
+            if (!resolvedAny)
+                notFoundPaths.Add(path);
         }
+        // 日志提示未命中路径
+        foreach (var nf in notFoundPaths)
+            logger.LogWarning($"备份路径未找到文件: {nf}");
 
         // 收集 copy zip 中的文件列表（用于 restore 时清理）
         var copyDeletedPaths = new List<string>();
@@ -156,6 +168,15 @@ public class FileManager
             restoreEntries.Add(new { op = "restore", srcPaths = baked.ToList() });
         }
 
+        // 只在有实际备份/清理内容时才创建 zip
+        bool hasContent = baked.Count > 0 || copyDeletedPaths.Count > 0;
+        if (!hasContent)
+        {
+            try { Directory.Delete(tmpDir, true); } catch { }
+            logger.LogWarning($"备份路径未能解析到实际文件，未生成 zip");
+            return;
+        }
+
         if (restoreEntries.Count > 0)
         {
             var manifest = new
@@ -174,10 +195,7 @@ public class FileManager
             System.IO.Compression.CompressionLevel.Optimal, false);
         try { Directory.Delete(tmpDir, true); } catch { }
 
-        if (baked.Count > 0)
-            logger.LogSuccess($"备份完成（zip）: {zipFn}  共 {baked.Count} 个文件");
-        else
-            logger.LogWarning($"bak 路径未能解析到实际文件，未生成 zip: {zipFn}");
+        logger.LogSuccess($"备份完成（zip）: {zipFn}  共 {baked.Count} 个文件");
     }
 
     // =========================================================================
@@ -305,12 +323,13 @@ public class FileManager
     }
 
     /// <summary>
-    /// SharpZipLib 解压，自动识别条目名编码（UTF-8 vs GBK）。
+    /// SharpZipLib 解压，自动识别条目名编码（UTF-8 vs GBK），并校验路径安全性。
     /// 通过启发式检测判断 SharpZipLib 解码后的文件名是否正确。
     /// </summary>
     private int ExtractWithAutoEncoding(string zipFile, string destDir, ILogger logger)
     {
         int copied = 0;
+        int skipped = 0;
 
         using var fs = File.OpenRead(zipFile);
         using var zf = new ICSharpCode.SharpZipLib.Zip.ZipFile(fs);
@@ -348,7 +367,18 @@ public class FileManager
                 logger.LogInfo($"编码修正: {decodedName} -> {entryName}");
             }
 
-            var targetPath = Path.Combine(destDir, entryName.Replace('/', '\\'));
+            // 规范化路径：统一处理反斜杠/正斜杠
+            entryName = entryName.Replace('\\', '/').TrimStart('/');
+
+            // 路径安全校验：阻止路径穿越攻击
+            if (!IsSafePath(entryName, destDir))
+            {
+                logger.LogWarning($"跳过非法路径条目（可能的路径穿越）: {entryName}");
+                skipped++;
+                continue;
+            }
+
+            var targetPath = Path.Combine(destDir, entryName.Replace('/', Path.DirectorySeparatorChar));
             var targetDir = Path.GetDirectoryName(targetPath)!;
 
             Directory.CreateDirectory(targetDir);
@@ -361,7 +391,37 @@ public class FileManager
             logger.LogSuccess($"解压覆盖: {entryName} -> {targetPath}");
         }
 
+        if (skipped > 0)
+            logger.LogWarning($"本次解压跳过 {skipped} 个非法路径条目");
+
         return copied;
+    }
+
+    /// <summary>
+    /// 校验解压路径是否安全，防止路径穿越攻击（../、绝对路径、盘符路径）。
+    /// 路径必须位于目标目录内，且不能包含上级目录引用。
+    /// </summary>
+    private static bool IsSafePath(string entryName, string destDir)
+    {
+        if (string.IsNullOrWhiteSpace(entryName))
+            return false;
+
+        // 拒绝包含 .. 的路径
+        if (entryName.Contains(".."))
+            return false;
+
+        // 拒绝绝对路径（Windows 盘符或 Unix 绝对路径）
+        if (entryName.Length >= 2 && entryName[1] == ':') // Windows 盘符 C:\
+            return false;
+        if (entryName.StartsWith('/') || entryName.StartsWith('\\')) // Unix / Windows 绝对路径
+            return false;
+
+        // 规范化后路径必须位于目标目录内
+        var cleanName = entryName.Replace('\\', '/').TrimStart('/');
+        var fullPath = Path.GetFullPath(Path.Combine(destDir, cleanName));
+        var fullDestDir = Path.GetFullPath(destDir);
+
+        return fullPath.StartsWith(fullDestDir, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

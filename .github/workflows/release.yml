@@ -12,7 +12,7 @@ on:
         type: boolean
 
 permissions:
-  contents: write  # Required for creating releases
+  contents: write
 
 jobs:
   build:
@@ -28,15 +28,31 @@ jobs:
 
     - name: Determine build mode
       id: build_mode
+      shell: pwsh
       run: |
         echo "self_contained=${{ inputs.self_contained }}" >> $env:GITHUB_OUTPUT
-        # 获取版本号
         if ("${{ github.event.release.tag_name }}") {
           echo "version=${{ github.event.release.tag_name }}" >> $env:GITHUB_OUTPUT
         } elseif ("${{ github.ref_name }}") {
           echo "version=${{ github.ref_name }}" >> $env:GITHUB_OUTPUT
         } else {
           echo "version=dev" >> $env:GITHUB_OUTPUT
+        }
+
+    - name: Build (Release)
+      run: dotnet build BGIJSTool.csproj -c Release --nologo
+
+    - name: Test
+      shell: pwsh
+      run: |
+        $testProjects = Get-ChildItem -Recurse -Filter "*.Tests.csproj"
+        if ($testProjects.Count -eq 0) {
+          Write-Host "未发现测试项目，跳过 dotnet test。"
+          exit 0
+        }
+        foreach ($project in $testProjects) {
+          dotnet test $project.FullName -c Release --no-restore --nologo
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         }
 
     - name: Publish (Framework-Dependent)
@@ -74,6 +90,8 @@ jobs:
           Copy-Item -Path ./copy/* -Destination ./publish/copy -Recurse -Force
         }
         if (Test-Path ./config.json) { Copy-Item -Path ./config.json -Destination ./publish -Force }
+        if (Test-Path ./README.md) { Copy-Item -Path ./README.md -Destination ./publish -Force }
+        if (Test-Path ./SPEC.md) { Copy-Item -Path ./SPEC.md -Destination ./publish -Force }
 
     - name: Create ZIP archive
       shell: pwsh
@@ -106,14 +124,12 @@ jobs:
       id: changelog
       shell: pwsh
       run: |
-        # Get commits since the previous release tag
         $currentTag = "${{ github.event.release.tag_name }}"
         $tags = git tag --sort=-v:refname
         $previousTag = ($tags | Where-Object { $_ -lt $currentTag } | Select-Object -First 1)
         if ($previousTag) {
           $commits = git log --oneline "$previousTag..$currentTag"
         } else {
-          # Fallback: get last 20 commits
           $commits = git log --oneline -20
         }
         $changelog = ($commits | ForEach-Object { "- $_" }) -join "`n"
@@ -137,19 +153,23 @@ jobs:
         body: |
           ## BGIJSTool v${{ github.event.release.tag_name }}
 
-          ### 📝 更新记录
+          ### 更新记录
           ${{ steps.changelog.outputs.content }}
 
-          ### 📦 下载
-          - **BGIJSTool.zip** - 包含主程序和辅助文件
+          ### 下载
+          - **BGIJSTool.zip** - 包含主程序、默认配置、copy 辅助包、README.md 和 SPEC.md。
 
-          ### 📝 文件信息
+          ### 部署模式
+          - Framework-Dependent：体积更小，目标机器需要安装 .NET 8 Desktop Runtime。
+          - Self-Contained：体积更大，包含 .NET 运行时，目标机器无需额外安装运行时。
+
+          ### 文件信息
           - SHA256: `${{ steps.hash.outputs.sha256 }}`
           - 大小: `${{ steps.hash.outputs.size }} MB`
 
-          ### 🚀 使用说明
-          1. 解压 BGIJSTool.zip
-          2. 运行 BGIJSTool.exe
-          3. 配置 BetterGI 路径和 config.json 后即可使用
+          ### 使用说明
+          1. 解压 BGIJSTool.zip。
+          2. 运行 BGIJSTool.exe。
+          3. 配置 BetterGI 路径和 config.json 后即可使用。
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

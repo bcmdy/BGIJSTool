@@ -1,6 +1,5 @@
-using System;
-using System.Text;
 using System.IO;
+using System.Text;
 using System.Windows.Controls;
 using System.Windows.Documents;
 
@@ -14,10 +13,12 @@ namespace BGIJSTool.Services
         public Logger(RichTextBox logBox, string programPath)
         {
             _logBox = logBox;
-            var logDir = Path.Combine(programPath, "logs");
-            Directory.CreateDirectory(logDir);
-            _logFilePath = Path.Combine(logDir, DateTime.Now.ToString("yyyy-MM-dd") + ".log");
+            LogDirectory = Path.Combine(programPath, "logs");
+            Directory.CreateDirectory(LogDirectory);
+            _logFilePath = Path.Combine(LogDirectory, DateTime.Now.ToString("yyyy-MM-dd") + ".log");
         }
+
+        public string LogDirectory { get; }
 
         public void Log(string message, string type)
         {
@@ -36,24 +37,18 @@ namespace BGIJSTool.Services
             AppendToFile(logEntry);
         }
 
-        public void LogInfo(string message)
-        {
-            Log(message, "信息");
-        }
+        public void LogInfo(string message) => Log(message, "信息");
 
-        public void LogSuccess(string message)
-        {
-            Log(message, "成功");
-        }
+        public void LogSuccess(string message) => Log(message, "成功");
 
-        public void LogWarning(string message)
-        {
-            Log(message, "警告");
-        }
+        public void LogWarning(string message) => Log(message, "警告");
 
-        public void LogError(string message)
+        public void LogError(string message) => Log(message, "错误");
+
+        public void ClearCurrentLog()
         {
-            Log(message, "错误");
+            _logBox.Dispatcher.Invoke(() => _logBox.Document.Blocks.Clear());
+            File.WriteAllText(_logFilePath, string.Empty, Encoding.UTF8);
         }
 
         private void AppendToLogBox(string text, string color)

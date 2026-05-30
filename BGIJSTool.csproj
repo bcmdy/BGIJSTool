@@ -16,4 +16,9 @@
     <PackageReference Include="SharpZipLib" Version="1.4.2" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Remove="BGIJSTool.Tests\**\*.cs" />
+    <None Remove="BGIJSTool.Tests\**\*" />
+  </ItemGroup>
+
 </Project>

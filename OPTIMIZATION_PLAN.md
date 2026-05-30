@@ -1,204 +1,136 @@
-# BGIJSTool 优化方案与修改简介
+# BGIJSTool 优化方案与完成记录
 
 ## 项目现状
 
-BGIJSTool 是一个基于 WPF / .NET 8 的 BetterGI 脚本管理工具，主要通过 `config.json` 驱动备份、删除、还原和复制脚本文件。当前结构较轻量，核心代码集中在：
+BGIJSTool 是一个基于 WPF / .NET 8 的 BetterGI 脚本管理工具，通过 `config.json` 驱动备份、删除、还原和复制脚本文件。
 
-- `MainWindow.xaml` / `MainWindow.xaml.cs`：界面、按钮事件、模块执行流程。
-- `Services/FileManager.cs`：备份 zip、删除、还原、copy zip 解压等文件操作。
-- `Services/ConfigService.cs`：配置读取与保存。
+核心代码：
+
+- `MainWindow.xaml` / `MainWindow.xaml.cs`：界面、控件状态、选择项和日志展示。
+- `Services/FileManager.cs`：备份 zip、删除、还原、copy zip 解压、备份摘要读取等文件系统动作。
+- `Services/ScriptOperationService.cs`：模块执行编排。
+- `Services/ConfigService.cs`：配置读取、保存和结构化校验。
 - `Models/Config.cs`：配置模型和 `files` 转换器。
 - `build.ps1` / `.github/workflows/release.yml`：本地与 GitHub Actions 发布流程。
+- `BGIJSTool.Tests`：服务层测试项目。
 
-本地验证结果：`dotnet build --nologo` 已通过，0 warning / 0 error。
+本地验证：
 
-## 优先级 P0：建议立刻修复
+- `dotnet build --nologo`：通过，0 warning / 0 error。
+- `dotnet build -c Release --nologo`：通过，0 warning / 0 error。
+- `dotnet test BGIJSTool.Tests\BGIJSTool.Tests.csproj --nologo`：通过，6 tests。
 
-### 1. 修复中文文案和配置乱码 ✅ 已完成
+## 优先级 P0：建议立刻修复 ✅ 已完成
 
-当前多个文件里的中文内容疑似已经被错误编码保存，包括 `README.md`、`SPEC.md`、`MainWindow.xaml`、`MainWindow.xaml.cs`、`Services/*.cs`、`config.json`、`.github/workflows/release.yml`。这会直接影响：
-
-- 软件界面显示。
-- 日志内容可读性。
-- 配置模块名称和 zip 文件匹配。
-- 发布说明可读性。
-
-建议修改：
-
-- 统一将源码、文档、配置保存为 UTF-8。
-- 恢复所有中文 UI 文案、日志文案、配置模块名、注释和发布说明。
-- 在 `.editorconfig` 或 README 中明确编码要求。
-- 对 `config.json` 中的路径和 zip 名称做一次人工核对，避免乱码名称导致 copy 匹配失败。
+### 1. 修复中文文档和配置乱码 ✅ 已完成
 
 完成情况：
 
-- 已新增 `.editorconfig`，统一声明 UTF-8、LF、末尾换行等基础格式规则。
-- 已更新 `.gitattributes`，统一文本文件 LF 换行，并标记 zip/exe/dll 为二进制文件。
-- 已修复 README、SPEC 中发现的残留错误文案。
-- 已将日志文件写入方式改为 UTF-8。
-- 已验证 `config.json` 可正常解析，copy zip 文件名均能匹配到 `copy/` 目录。
+- 新增 `.editorconfig`，统一声明 UTF-8、LF、末尾换行等基础格式规则。
+- 更新 `.gitattributes`，统一文本文件 LF 换行，并标记 zip/exe/dll 为二进制文件。
+- 修复 README、SPEC 中发现的残留错误文案。
+- 日志文件写入方式使用 UTF-8。
+- 验证 `config.json` 可正常解析，copy zip 文件名能匹配到 `copy/` 目录。
 
 ### 2. 统一路径展开逻辑，修复目录/通配符路径执行错误 ✅ 已完成
 
-`MainWindow.xaml.cs` 和 `FileManager.cs` 都实现了 `ResolveBgi`。其中 `MainWindow.xaml.cs` 的 `MakeRel` 只做了斜杠替换，没有把 `{BGIpath}\User\JsScript\` 前缀去掉。目录展开或通配符展开后，可能把完整磁盘路径再传给 `FileManager.GetFullPath()`，导致目标路径拼接错误。
-
 完成情况：
 
-- 已删除 `MainWindow.xaml.cs` 中重复的 `ResolveBgi` 和 `MakeRel` 方法。
-- 已在 `FileManager` 中新增公开方法 `ResolveBgiPaths(string path)`，正确处理前缀去除。
-- 所有 `del`、`restore`、`bak` 操作均调用同一套 `ResolveBgiPaths()` 方法。
-- `totalFiles` 统计已改为基于展开后的路径数量，并覆盖 `bak`、`del`、`restore` 和 `copy` 步骤。
+- 删除 `MainWindow.xaml.cs` 中重复的路径展开逻辑。
+- 在 `FileManager` 中新增公共方法 `ResolveBgiPaths(string path)`。
+- `del`、`restore`、`bak` 操作均调用同一套路径展开逻辑。
+- `totalFiles` 统计改为基于展开后的路径数量，并覆盖 `bak`、`del`、`restore` 和 `copy` 步骤。
 
 ### 3. 加强 zip 解压安全校验 ✅ 已完成
 
-`ExecuteCopy` 和 `ExecuteRestoreFromZip` 会把 zip 条目写入 BetterGI 脚本目录。当前没有显式拦截 `../`、绝对路径、盘符路径等危险条目。
-
 完成情况：
 
-- 新增 `IsSafePath()` 方法，校验解压目标路径不能含 `..`、盘符路径、绝对路径。
-- 拒绝写入目标目录外的路径，防止路径穿越攻击。
+- 新增 `IsSafePath()`，拒绝 `..`、盘符路径、绝对路径等危险条目。
+- 拒绝写入目标目录外的路径，防止路径穿越。
 - 非法条目跳过并记录警告日志。
-- 条目名中的反斜杠、正斜杠统一转为正斜杠处理。
+- 条目名中的反斜杠、正斜杠统一处理。
 
 ### 4. 空备份 zip 不应被生成 ✅ 已完成
 
-`CreateBakZip` 在没有实际备份文件时仍可能创建空 zip，然后日志提示”未生成 zip”。这会误导用户，也会污染还原下拉列表。
-
 完成情况：
 
-- 当 `baked.Count == 0` 且 `copyDeletedPaths.Count == 0` 时，不再创建空 zip。
-- 新增 `notFoundPaths` 记录列表，遍历后输出”备份路径未找到文件”警告。
-- 日志明确提示哪些路径未命中和最终 zip 统计信息。
+- 当无有效备份文件且无 copy 清理内容时，不再创建空 zip。
+- 新增 `notFoundPaths` 记录列表，遍历后输出备份路径未找到文件警告。
+- 日志明确提示未命中路径和最终 zip 统计信息。
 
 ## 优先级 P1：提升稳定性和可维护性 ✅ 已完成
 
 ### 1. 拆分窗口事件和业务流程 ✅ 已完成
 
-`MainWindow.xaml.cs` 同时负责 UI 状态、配置、路径解析、执行编排和日志输出，后续功能增加会越来越难维护。
-
-建议修改：
-
-- 新增 `ScriptOperationService`，负责模块执行编排。
-- `FileManager` 只保留文件系统动作。
-- `MainWindow` 只负责控件状态、选择项和日志展示。
-- 后续可平滑迁移到 MVVM。
-
 完成情况：
 
-- 已新增 `Services/ScriptOperationService.cs`，集中处理模块执行编排、预备份、删除、还原和 copy 调用。
-- `MainWindow.xaml.cs` 已收敛为配置加载、控件状态、选择项展示和日志触发。
+- 新增 `Services/ScriptOperationService.cs`，集中处理模块执行编排、预备份、删除、还原和 copy 调用。
+- `MainWindow.xaml.cs` 收敛为配置加载、控件状态、选择项展示和日志触发。
 - 文件系统动作继续由 `FileManager` 承担，窗口层不再直接展开路径并逐项执行。
 
 ### 2. 修正按钮状态管理 ✅ 已完成
 
-当前 `EnableControls(pathValid)` 会直接启用执行按钮，但“路径有效”和“已选择模块”是两个条件。执行完成后的 `finally` 也会直接把按钮设为可用，可能绕过占位项和路径校验。
-
-建议修改：
-
-- 新增 `UpdateActionState()`。
-- 执行按钮条件：BetterGI.exe 有效 + 已选择真实模块 + 当前未执行。
-- 还原按钮条件：BetterGI.exe 有效 + 已选择真实备份 zip + 当前未执行。
-- 删除备份按钮条件：已选择真实备份 zip + 当前未执行。
-
 完成情况：
 
-- 已新增 `_isBusy`、`_isBgiPathValid` 和 `UpdateActionState()`。
+- 新增 `_isBusy`、`_isBgiPathValid` 和 `UpdateActionState()`。
 - 执行、还原、删除备份按钮均由统一状态函数控制。
 - 执行完成、还原完成、删除完成、刷新配置和浏览路径后都会重新计算按钮状态。
 
 ### 3. 配置校验前置 ✅ 已完成
 
-当前配置读取主要依赖反序列化成功，缺少结构化校验。
-
-建议修改：
-
-- 校验 `BGIpath`、`modules`、`module.name`、`files[].op`、`files[].paths`。
-- 对空模块、空路径、未知 op、重复路径给出日志警告。
-- 保存 `BGIpath` 时保留原 JSON 缩进和中文编码。
-
 完成情况：
 
-- `ConfigService` 已新增 `ValidateConfig()`，在反序列化前校验 JSON 结构。
-- 对缺失字段、未知 `op`、非数组 `files/paths` 作为错误处理；对空模块、空路径、重复路径输出警告。
+- `ConfigService` 新增 `ValidateConfig()`，在反序列化前校验 JSON 结构。
+- 对缺失字段、未知 `op`、非数组 `files/paths` 作为错误处理。
+- 对空模块、空路径、同一 `op` 内重复路径输出警告；`bak` 和 `del` 共用路径不再误报。
 - 保存 `BGIpath` 时优先更新原 JSON 对象，并使用 UTF-8 与中文直写输出。
 
 ### 4. 备份文件名规范化 ✅ 已完成
 
-备份 zip 使用模块名作为文件名前缀。如果模块名包含 Windows 不允许的字符，例如 `\ / : * ? " < > |`，会导致备份失败。
+完成情况：
 
-建议修改：
+- `FileManager` 新增 `SanitizeFileName()`。
+- 备份 zip 文件名调整为 `yyyyMMdd_HHmmss_安全模块名.zip`。
+- `_restore_manifest.json` 中继续保留原始模块名。
 
-- 增加 `SanitizeFileName()`。
-- 文件名建议格式：`yyyyMMdd_HHmmss_模块名.zip`。
-- manifest 中保留原始模块名，文件名只作为安全标识。
+## 优先级 P2：体验和发布优化 ✅ 已完成
+
+### 1. 优化日志体验 ✅ 已完成
 
 完成情况：
 
-- `FileManager` 已新增 `SanitizeFileName()`。
-- 备份 zip 文件名已调整为 `yyyyMMdd_HHmmss_安全模块名.zip`。
-- `_restore_manifest.json` 中继续保留原始模块名。
+- 主界面新增“打开日志目录”和“清空当前日志”按钮。
+- `Logger` 继续使用 UTF-8 写入日志文件，并新增当前日志清空能力。
+- 模块执行结束后输出批量操作统计摘要，详细结果继续按成功/警告/错误日志呈现。
 
-## 优先级 P2：体验和发布优化
+### 2. 优化备份/还原体验 ✅ 已完成
 
-### 1. 优化日志体验
+完成情况：
 
-当前日志已同时写入 UI 和文件，这是好基础。可以继续增强：
+- 新增 `BackupInfo` 和 `FileManager.GetBackupInfos()`，通过 zip 内 `_restore_manifest.json` 读取备份摘要。
+- 还原下拉列表显示模块名、创建时间、备份文件数、是否包含 copy 清理清单和 zip 文件名。
+- 还原和删除操作改为基于真实备份文件对象执行，避免显示文本与文件名耦合。
 
-- 增加“打开日志目录”“清空当前日志”按钮。
-- 日志文件写入使用 UTF-8。
-- 长路径日志可折叠或仅显示相对路径，减少界面噪声。
-- 批量操作结束后输出成功、跳过、失败统计。
+### 3. 发布流程补强 ✅ 已完成
 
-### 2. 优化备份/还原体验
+完成情况：
 
-建议在还原下拉列表中展示更多信息：
+- 本地 `build.ps1` 在发布前执行 Release build，并在发现测试项目时执行 `dotnet test`。
+- GitHub Actions 增加 `dotnet build -c Release` 和测试步骤。
+- 发布包附带 `README.md`、`SPEC.md`、默认 `config.json` 和 `copy/` 目录。
+- release body 恢复中文说明，并说明 Framework-Dependent 与 Self-Contained 的区别。
 
-- 模块名。
-- 创建时间。
-- 备份文件数量。
-- 是否包含 copy 清理清单。
+## 建议测试清单 ✅ 已完成
 
-可通过读取 `_restore_manifest.json` 实现，不必打开整个 zip 解压。
+完成情况：
 
-### 3. 发布流程补强
+- 新增 `BGIJSTool.Tests` 测试项目。
+- 已覆盖配置校验、`bak/del` 共用路径不误报、保存配置中文直写、备份文件名规范化和 restore manifest 摘要读取。
+- 已验证 `dotnet test BGIJSTool.Tests\BGIJSTool.Tests.csproj --nologo` 通过。
 
-当前本地 `build.ps1` 和 GitHub Actions 都能发布，但可继续强化：
+后续可继续扩展：
 
-- CI 增加 `dotnet build -c Release`。
-- 增加最小化单元测试后在 CI 中执行 `dotnet test`。
-- 发布包内附带 `README.md`、`SPEC.md` 和默认 `config.json`。
-- 在 release body 中恢复中文说明，并列出 FDD / Self-contained 区别。
-
-## 建议测试清单
-
-建议新增测试项目 `BGIJSTool.Tests`，优先覆盖无 UI 的服务层：
-
-- `ConfigService`：正常配置、缺字段、未知 op、空模块。
-- `FileManager` 路径解析：精确文件、通配符、目录递归、中文路径。
-- 备份 zip：存在文件、缺失文件、空备份、不合法模块名。
+- `FileManager.ResolveBgiPaths()`：精确文件、通配符、目录递归、中文路径。
+- 备份 zip：存在文件、缺失文件、空备份。
 - copy zip 解压：中文文件名、GBK/UTF-8 文件名、非法 `../` 条目。
 - restore manifest：先删除 copy 文件，再恢复原备份文件。
-
-## 推荐实施顺序
-
-1. 恢复 UTF-8 中文文案和配置，确保界面、日志、文档可读。
-2. 收敛路径解析到 `FileManager`，修复目录/通配符展开的相对路径问题。
-3. 增加 zip 解压路径安全校验。
-4. 修正空备份 zip 和备份文件名规范化。
-5. 重构执行编排服务，并补充测试。
-6. 优化日志、还原列表和发布流程。
-
-## 修改简介模板
-
-后续实际改动可以按以下格式记录：
-
-```markdown
-## 修改简介
-
-- 修复：恢复源码、配置、文档中的中文 UTF-8 文案。
-- 修复：统一路径解析逻辑，目录和通配符展开后始终返回 JsScript 相对路径。
-- 安全：解压 zip 前校验目标路径，阻止路径穿越。
-- 稳定性：无有效备份内容时不再生成空 zip。
-- 体验：执行按钮状态同时受路径、选择项和执行状态控制。
-- 工程：增加服务层测试，覆盖配置、路径解析、备份、还原和 copy 解压。
-```

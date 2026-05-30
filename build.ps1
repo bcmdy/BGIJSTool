@@ -130,6 +130,27 @@ Write-Ok "还原完成"
 # ── 编译参数 ──
 Write-Header "Step 3/4 - 编译并发布"
 
+dotnet build "$ProjectFile" -c $Configuration --no-restore --nologo
+if ($LASTEXITCODE -ne 0) {
+    Write-Err "编译失败!"
+    exit $LASTEXITCODE
+}
+Write-Ok "Release 编译完成"
+
+$TestProjects = Get-ChildItem -Path $ScriptDir -Recurse -Filter "*.Tests.csproj" -ErrorAction SilentlyContinue
+if ($TestProjects.Count -gt 0) {
+    foreach ($TestProject in $TestProjects) {
+        dotnet test $TestProject.FullName -c $Configuration --no-restore --nologo
+        if ($LASTEXITCODE -ne 0) {
+            Write-Err "测试失败: $($TestProject.FullName)"
+            exit $LASTEXITCODE
+        }
+    }
+    Write-Ok "测试完成"
+} else {
+    Write-Warn "未发现测试项目，跳过 dotnet test"
+}
+
 $PublishArgs = @(
     "publish", "$ProjectFile"
     "-c", $Configuration
@@ -194,6 +215,8 @@ Write-Header "Step 5/5 - 复制辅助文件"
 
 $CopySource = Join-Path $ScriptDir "copy"
 $ConfigSource = Join-Path $ScriptDir "config.json"
+$ReadmeSource = Join-Path $ScriptDir "README.md"
+$SpecSource = Join-Path $ScriptDir "SPEC.md"
 
 if (Test-Path $CopySource) {
     $CopyDest = Join-Path $PublishDir "copy"
@@ -208,6 +231,20 @@ if (Test-Path $ConfigSource) {
     Write-Ok "已复制 config.json"
 } else {
     Write-Warn "未找到 config.json"
+}
+
+if (Test-Path $ReadmeSource) {
+    Copy-Item $ReadmeSource (Join-Path $PublishDir "README.md") -Force
+    Write-Ok "已复制 README.md"
+} else {
+    Write-Warn "未找到 README.md"
+}
+
+if (Test-Path $SpecSource) {
+    Copy-Item $SpecSource (Join-Path $PublishDir "SPEC.md") -Force
+    Write-Ok "已复制 SPEC.md"
+} else {
+    Write-Warn "未找到 SPEC.md"
 }
 
 # ── 使用说明 ──

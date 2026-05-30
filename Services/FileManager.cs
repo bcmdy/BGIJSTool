@@ -50,6 +50,68 @@ public class FileManager
     public string GetCopySourcePath(string relativePath)
         => Path.Combine(_copyPath, relativePath);
 
+    public List<BackupInfo> GetBackupInfos()
+    {
+        if (!Directory.Exists(_backupPath))
+            return new List<BackupInfo>();
+
+        return Directory.GetFiles(_backupPath, "*.zip", SearchOption.TopDirectoryOnly)
+            .Select(ReadBackupInfo)
+            .OrderByDescending(info => info.CreatedAt ?? File.GetLastWriteTime(info.FullPath))
+            .ToList();
+    }
+
+    private BackupInfo ReadBackupInfo(string zipFullPath)
+    {
+        var fileName = Path.GetFileName(zipFullPath);
+        var fallbackTime = File.GetLastWriteTime(zipFullPath);
+
+        try
+        {
+            using var archive = System.IO.Compression.ZipFile.OpenRead(zipFullPath);
+            var entry = archive.GetEntry("_restore_manifest.json");
+            if (entry is null)
+                return BackupInfo.FromFile(fileName, zipFullPath, fallbackTime);
+
+            using var stream = entry.Open();
+            var manifest = JsonSerializer.Deserialize<RestoreManifest>(stream);
+            if (manifest is null)
+                return BackupInfo.FromFile(fileName, zipFullPath, fallbackTime);
+
+            var restoreCount = manifest.RestoreEntries
+                .Where(item => item.Op == "restore")
+                .Sum(item => item.SrcPaths?.Count ?? 0);
+            var deleteCount = manifest.RestoreEntries
+                .Where(item => item.Op == "del")
+                .Sum(item => item.Paths?.Count ?? 0);
+            var createdAt = ParseManifestTime(manifest.CreatedAt) ?? fallbackTime;
+
+            return new BackupInfo(
+                fileName,
+                zipFullPath,
+                manifest.ModuleName,
+                createdAt,
+                restoreCount,
+                deleteCount,
+                deleteCount > 0);
+        }
+        catch
+        {
+            return BackupInfo.FromFile(fileName, zipFullPath, fallbackTime);
+        }
+    }
+
+    private static DateTime? ParseManifestTime(string value)
+    {
+        if (DateTime.TryParseExact(value, "yyyyMMddTHHmmss", null,
+            System.Globalization.DateTimeStyles.None, out var parsed))
+        {
+            return parsed;
+        }
+
+        return DateTime.TryParse(value, out parsed) ? parsed : null;
+    }
+
     // =========================================================================
     //  对外入口
     // =========================================================================
@@ -637,5 +699,37 @@ public class FileManager
         if (!fullPath.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
             return fullPath;
         return fullPath.Substring(prefix.Length).Replace('\\', '/');
+    }
+}
+
+public sealed record BackupInfo(
+    string FileName,
+    string FullPath,
+    string ModuleName,
+    DateTime? CreatedAt,
+    int RestoreFileCount,
+    int DeletePathCount,
+    bool HasCopyCleanup)
+{
+    public string DisplayText
+    {
+        get
+        {
+            var created = CreatedAt?.ToString("yyyy-MM-dd HH:mm:ss") ?? "未知时间";
+            var copy = HasCopyCleanup ? "含 copy 清理" : "无 copy 清理";
+            return $"{ModuleName} | {created} | 备份 {RestoreFileCount} 个 | {copy} | {FileName}";
+        }
+    }
+
+    public static BackupInfo FromFile(string fileName, string fullPath, DateTime createdAt)
+    {
+        return new BackupInfo(
+            fileName,
+            fullPath,
+            Path.GetFileNameWithoutExtension(fileName),
+            createdAt,
+            0,
+            0,
+            false);
     }
 }

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
@@ -81,7 +82,7 @@ namespace BGIJSTool
 
             BGIPathText.Text = exeFound
                 ? $"BetterGI.exe: {exePath}"
-                : $"BetterGI 路径: {path}  ⚠ 未找到 BetterGI.exe，请重新选择";
+                : $"BetterGI 路径: {path}  未找到 BetterGI.exe，请重新选择";
             BGIPathText.Foreground = _configService.IsValidPath() && exeFound
                 ? Brushes.Black
                 : Brushes.Red;
@@ -102,6 +103,8 @@ namespace BGIJSTool
             ExecuteBtn.IsEnabled = !_isBusy && _isBgiPathValid && HasSelectedModule();
             ExecuteRestoreBtn.IsEnabled = !_isBusy && _isBgiPathValid && HasSelectedBackup();
             DeleteBackupBtn.IsEnabled = !_isBusy && HasSelectedBackup();
+            OpenLogDirBtn.IsEnabled = !_isBusy;
+            ClearLogBtn.IsEnabled = !_isBusy;
         }
 
         private bool HasSelectedModule()
@@ -114,9 +117,9 @@ namespace BGIJSTool
 
         private bool HasSelectedBackup()
         {
-            return RestoreCombo.SelectedItem is string zipFileName
-                && !string.IsNullOrWhiteSpace(zipFileName)
-                && File.Exists(Path.Combine(_programPath, "backup", zipFileName));
+            return RestoreCombo.SelectedItem is BackupInfo backup
+                && !string.IsNullOrWhiteSpace(backup.FileName)
+                && File.Exists(backup.FullPath);
         }
 
         private void SetBusy(bool isBusy, string status)
@@ -195,6 +198,7 @@ namespace BGIJSTool
                 var result = operationService.ExecuteModule(module);
                 PopulateRestoreCombo();
 
+                _logger.LogInfo($"批量操作统计: 计划处理 {result.TotalFiles} 个条目，详情见上方成功/警告/错误日志");
                 _logger.LogInfo($"模块执行完成，共处理 {result.TotalFiles} 个文件");
                 StatusText.Text = "执行完成";
             }
@@ -211,7 +215,7 @@ namespace BGIJSTool
 
         private void ExecuteRestoreBtn_Click(object sender, RoutedEventArgs e)
         {
-            if (RestoreCombo.SelectedItem is not string zipFileName || !HasSelectedBackup())
+            if (RestoreCombo.SelectedItem is not BackupInfo backup || !HasSelectedBackup())
             {
                 _logger.LogWarning("请先选择一个备份压缩包");
                 return;
@@ -221,8 +225,8 @@ namespace BGIJSTool
 
             try
             {
-                _logger.LogInfo($"开始还原: {zipFileName}");
-                CreateOperationService().RestoreBackup(zipFileName);
+                _logger.LogInfo($"开始还原: {backup.DisplayText}");
+                CreateOperationService().RestoreBackup(backup.FileName);
                 StatusText.Text = "还原完成";
             }
             catch (Exception ex)
@@ -239,14 +243,14 @@ namespace BGIJSTool
 
         private void DeleteBackupBtn_Click(object sender, RoutedEventArgs e)
         {
-            if (RestoreCombo.SelectedItem is not string zipFileName || !HasSelectedBackup())
+            if (RestoreCombo.SelectedItem is not BackupInfo backup || !HasSelectedBackup())
             {
                 _logger.LogWarning("请先选择一个备份压缩包");
                 return;
             }
 
             var result = MessageBox.Show(
-                $"确定要删除备份 {zipFileName} 吗？\n此操作不可撤销。",
+                $"确定要删除备份 {backup.FileName} 吗？\n此操作不可撤销。",
                 "确认删除",
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Question);
@@ -257,9 +261,8 @@ namespace BGIJSTool
 
             try
             {
-                var backupPath = Path.Combine(_programPath, "backup", zipFileName);
-                File.Delete(backupPath);
-                _logger.LogSuccess($"已删除备份: {zipFileName}");
+                File.Delete(backup.FullPath);
+                _logger.LogSuccess($"已删除备份: {backup.FileName}");
                 StatusText.Text = "删除完成";
             }
             catch (Exception ex)
@@ -276,32 +279,22 @@ namespace BGIJSTool
 
         private void PopulateRestoreCombo()
         {
-            var backupDir = Path.Combine(_programPath, "backup");
-            RestoreCombo.Items.Clear();
+            var selectedFileName = (RestoreCombo.SelectedItem as BackupInfo)?.FileName;
+            var fileManager = new FileManager(_configService.GetBGIPath(), _programPath);
+            var backups = fileManager.GetBackupInfos();
+
+            RestoreCombo.ItemsSource = backups;
             RestoreCombo.IsEditable = false;
+            RestoreCombo.IsEnabled = backups.Count > 0;
 
-            if (!Directory.Exists(backupDir))
-            {
-                RestoreCombo.Text = RestorePlaceholder;
-                RestoreCombo.IsEnabled = false;
-                UpdateActionState();
-                return;
-            }
-
-            var zips = Directory.GetFiles(backupDir, "*.zip", SearchOption.TopDirectoryOnly);
-            Array.Sort(zips);
-
-            RestoreCombo.IsEnabled = zips.Length > 0;
-
-            if (zips.Length == 0)
+            if (backups.Count == 0)
             {
                 RestoreCombo.Text = RestorePlaceholder;
             }
             else
             {
-                foreach (var file in zips)
-                    RestoreCombo.Items.Add(Path.GetFileName(file));
-                RestoreCombo.SelectedIndex = 0;
+                RestoreCombo.SelectedItem = backups.FirstOrDefault(item => item.FileName == selectedFileName)
+                    ?? backups[0];
             }
 
             UpdateActionState();
@@ -352,6 +345,22 @@ namespace BGIJSTool
         private void RefreshBtn_Click(object sender, RoutedEventArgs e)
         {
             LoadConfigIntoUi("配置已刷新");
+        }
+
+        private void OpenLogDirBtn_Click(object sender, RoutedEventArgs e)
+        {
+            Directory.CreateDirectory(_logger.LogDirectory);
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = _logger.LogDirectory,
+                UseShellExecute = true
+            });
+        }
+
+        private void ClearLogBtn_Click(object sender, RoutedEventArgs e)
+        {
+            _logger.ClearCurrentLog();
+            _logger.LogInfo("当前日志已清空");
         }
 
         private ScriptOperationService CreateOperationService()

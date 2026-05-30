@@ -2,10 +2,11 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="BetterGI 脚本管理工具"
-        Height="650" Width="820"
+        Height="700" Width="920"
         Loaded="Window_Loaded">
     <Grid Margin="10">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -21,11 +22,9 @@
             <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
 
-        <!-- Row 0: 路径标签 -->
         <TextBlock Grid.Row="0" Grid.ColumnSpan="2"
                    Text="BetterGI.exe 路径:" FontWeight="Bold" Margin="0,0,0,5"/>
 
-        <!-- Row 1: 路径展示 + 浏览按钮 -->
         <Grid Grid.Row="1" Grid.ColumnSpan="2" Margin="0,0,0,8">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
@@ -33,14 +32,12 @@
             </Grid.ColumnDefinitions>
             <TextBlock Grid.Column="0" x:Name="BGIPathText" Text="" Foreground="Red"
                        TextWrapping="Wrap" VerticalAlignment="Center"/>
-            <Button Grid.Column="1" x:Name="BrowseBtn" Content="浏览…" Width="70"
+            <Button Grid.Column="1" x:Name="BrowseBtn" Content="浏览..." Width="76"
                     Margin="6,0,0,0" Click="BrowseBtn_Click" VerticalAlignment="Center"/>
         </Grid>
 
-        <!-- Row 2: 模块标签 -->
         <TextBlock Grid.Row="2" Text="选择模块:" VerticalAlignment="Center" Margin="0,0,6,4"/>
 
-        <!-- Row 3: 模块Combo + 执行/刷新按钮 -->
         <ComboBox Grid.Row="3" x:Name="ModuleCombo" DisplayMemberPath="name"
                   VerticalAlignment="Center" Margin="0,0,6,8"
                   SelectionChanged="ModuleCombo_SelectionChanged"/>
@@ -48,22 +45,20 @@
                     VerticalAlignment="Center">
             <Button x:Name="ExecuteBtn" Content="执行" Width="80" Margin="0,0,4,0"
                     Click="ExecuteBtn_Click"/>
-            <Button Content="刷新配置" Width="80"
+            <Button Content="刷新配置" Width="90"
                     Click="RefreshBtn_Click"/>
         </StackPanel>
 
-        <!-- Row 4: 还原分割线 -->
         <Separator Grid.Row="4" Grid.ColumnSpan="2" Margin="0,4,0,6"/>
 
-        <!-- Row 5: 备份标签 -->
         <TextBlock Grid.Row="5" Text="选择备份:" VerticalAlignment="Center"
                    Margin="0,0,6,4"/>
 
-        <!-- Row 6: 备份Combo + 执行还原/删除按钮 -->
         <ComboBox Grid.Row="6" x:Name="RestoreCombo"
+                  DisplayMemberPath="DisplayText"
                   IsEditable="False" IsEnabled="False"
                   VerticalAlignment="Center" Margin="0,0,6,8"
-                  ToolTip="列出 backup 目录中的所有压缩包"/>
+                  ToolTip="显示 backup 目录中的备份：模块名、创建时间、备份文件数和 copy 清理信息"/>
         <StackPanel Grid.Row="6" Grid.Column="1" Orientation="Horizontal"
                     VerticalAlignment="Center">
             <Button x:Name="ExecuteRestoreBtn" Content="执行还原" Width="80"
@@ -72,16 +67,28 @@
                     Click="DeleteBackupBtn_Click"/>
         </StackPanel>
 
-        <!-- Row 7: 日志 -->
-        <Border Grid.Row="7" Grid.ColumnSpan="2"
+        <Grid Grid.Row="7" Grid.ColumnSpan="2" Margin="0,0,0,6">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Text="日志" FontWeight="Bold" VerticalAlignment="Center"/>
+            <StackPanel Grid.Column="1" Orientation="Horizontal">
+                <Button x:Name="OpenLogDirBtn" Content="打开日志目录" Width="110"
+                        Click="OpenLogDirBtn_Click" Margin="0,0,4,0"/>
+                <Button x:Name="ClearLogBtn" Content="清空当前日志" Width="110"
+                        Click="ClearLogBtn_Click"/>
+            </StackPanel>
+        </Grid>
+
+        <Border Grid.Row="8" Grid.ColumnSpan="2"
                 BorderBrush="Gray" BorderThickness="1" Margin="0,0,0,8">
             <RichTextBox x:Name="LogBox" IsReadOnly="True" BorderThickness="0"
                          VerticalScrollBarVisibility="Auto"
                          Background="#FFF8F8F8"/>
         </Border>
 
-        <!-- Row 8: 状态栏 -->
-        <StatusBar Grid.Row="8" Grid.ColumnSpan="2">
+        <StatusBar Grid.Row="9" Grid.ColumnSpan="2">
             <StatusBarItem>
                 <TextBlock x:Name="StatusText" Text="就绪"/>
             </StatusBarItem>

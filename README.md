@@ -1,114 +1,181 @@
-# BetterGI 脚本管理工具 (BGI Script Manager)
+# BetterGI 脚本管理工具（BGIJSTool）
 
-> **BetterGI**（Better Genshin Impact）辅助脚本文件自动化管理工具，集成 WPF 图形界面、JSON 配置文件驱动的批量操作。
+BGIJSTool 是一个基于 WPF / .NET 8 的 BetterGI 脚本管理工具。它通过 `config.json` 描述模块和步骤，批量完成 BetterGI 脚本文件的备份、删除、还原和 copy 包解压覆盖。
 
----
-
-## ✨ 功能
+## 功能
 
 | 操作 | 说明 |
-|------|------|
-| **bak**   | 将 `config.json` 中指定的文件，按原目录结构备份到程序目录下的 `backup/` |
-| **del**   | 直接删除目标文件 |
-| **restore** | 将 `backup/` 中的备份文件还原到指定目录 |
-| **copy**  | 从程序目录下的 `copy/` 文件夹复制新脚本到目标位置 |
+| --- | --- |
+| `bak` | 将 `config.json` 中指定的脚本文件按原目录结构打包到 `backup/` 下的备份 zip |
+| `del` | 删除目标脚本文件，并清理空目录 |
+| `restore` | 从备份内容还原目标脚本文件 |
+| `copy` | 从程序目录 `copy/` 中匹配 zip，并解压覆盖到 BetterGI 的 `User/JsScript/` |
 
-- **顺序执行**：所有操作按 `files` 数组中步骤的排列顺序依次执行
-- **通配符匹配**：`paths` 支持 `*.json` 等通配符，展开同目录下所有匹配文件
-- **目录展开**：`paths` 以 `\` 或 `/` 结尾则视为目录，递归展开其下所有文件
-- **中文路径支持**：自动支持中文路径/文件名
+补充能力：
 
----
+- 按 `files` 数组顺序执行步骤。
+- `paths` 支持精确文件、同目录通配符和目录递归展开。
+- copy zip 解压时校验路径安全，阻止 `../`、绝对路径和盘符路径。
+- 备份文件名会自动清理 Windows 非法字符，格式为 `yyyyMMdd_HHmmss_模块名.zip`。
+- 还原列表显示模块名、创建时间、备份文件数和是否包含 copy 清理清单。
+- 日志同时写入界面和 `logs/yyyy-MM-dd.log`，支持打开日志目录和清空当前日志。
 
-## 📋 Quick Start
+## 快速开始
 
-1. **设置 BetterGI 路径**：程序启动后右上角通过 "浏览…" 按钮选择 BetterGI.exe。
-2. **配置 `config.json`**：参照 `SPEC.md` 撰写，内含操作顺序、路径、模块安排。
-3. **选择模块**：在模块下拉列表中选择模块后点击 "执行"。
+1. 启动程序后点击“浏览...”，选择 `BetterGI.exe`。
+2. 根据 `SPEC.md` 编辑 `config.json`。
+3. 在“选择模块”下拉框中选择模块，点击“执行”。
+4. 如需还原，在“选择备份”下拉框中选择备份 zip，点击“执行还原”。
 
----
+所有 `paths` 都是相对于：
 
-## 📁 Project Structure
-
-```
-├── SPEC.md               # 详细规格说明书
-├── build.ps1             # 编译脚本（自动复制 copy 和 config.json）
-├── BGIJSTool.csproj
-├── icon.ico              # 应用图标
-├── MainWindow.xaml
-├── MainWindow.xaml.cs
-├── Models/
-│   └── Config.cs         # 配置模型
-├── Services/
-│   ├── ConfigService.cs
-│   ├── FileManager.cs    # 核心文件操作
-│   ├── ILogger.cs
-│   └── Logger.cs
-├── config.json           # 实际配置文件（运行时用）
-├── copy/                 # 脚本修改压缩包目录
-└── README.md             # 本文件
+```text
+{BGIpath}\User\JsScript\
 ```
 
----
-
-## 🔧 Config Reference
-
-`config.json` 关键字段说明（完整版见 **SPEC.md §4**）：
+## 配置示例
 
 ```jsonc
 {
-    "BGIpath": "E:\\YS\\BetterGI",          // BetterGI 根目录
-    "modules": [
+  "BGIpath": "D:\\YS\\BetterGI",
+  "modules": [
+    {
+      "name": "删除示例脚本",
+      "files": [
         {
-            "name": "模块名",
-            "files": [
-                {
-                    "op": "bak",           // 操作：bak / del / restore / copy
-                    "paths": [
-                        "精确路径\\文件名.json",           // 精确路径
-                        "子目录\\*.json",                  // 通配符（本目录所有 json）
-                        "子目录\\"                         // 目录展开（递归子目录）
-                    ]
-                }
-            ]
+          "op": "bak",
+          "paths": [
+            "Example\\script.json",
+            "Example\\routes\\*.json",
+            "Example\\extra\\"
+          ]
+        },
+        {
+          "op": "del",
+          "paths": [
+            "Example\\script.json",
+            "Example\\routes\\*.json",
+            "Example\\extra\\"
+          ]
         }
-    ]
+      ]
+    },
+    {
+      "name": "替换示例脚本",
+      "files": [
+        {
+          "op": "bak",
+          "paths": [
+            "Example\\"
+          ]
+        },
+        {
+          "op": "del",
+          "paths": [
+            "Example\\"
+          ]
+        },
+        {
+          "op": "copy",
+          "paths": [
+            "替换示例脚本.zip"
+          ]
+        }
+      ]
+    }
+  ]
 }
 ```
 
-> 所有 `paths` 均为相对于 `{BGIpath}\User\JsScript\` 的相对路径。
+路径写法：
 
----
+- `Example\script.json`：精确文件。
+- `Example\routes\*.json`：展开同目录下匹配的文件。
+- `Example\extra\`：递归展开目录下所有文件。
+- `copy` 步骤中的路径对应程序目录 `copy/` 下的 zip 文件名或匹配前缀。
 
-## 🛠 Requirements
+## 项目结构
 
-- Windows 7 / 10 / 11
-- .NET 6+ (SDK)
+```text
+.
+├─ App.xaml
+├─ MainWindow.xaml
+├─ MainWindow.xaml.cs
+├─ Models/
+│  └─ Config.cs
+├─ Services/
+│  ├─ ConfigService.cs
+│  ├─ FileManager.cs
+│  ├─ ILogger.cs
+│  ├─ Logger.cs
+│  └─ ScriptOperationService.cs
+├─ BGIJSTool.Tests/
+│  ├─ ConfigServiceTests.cs
+│  ├─ FileManagerTests.cs
+│  └─ TestWorkspace.cs
+├─ config.json
+├─ copy/
+├─ build.ps1
+├─ SPEC.md
+└─ README.md
+```
+
+## 运行要求
+
+- Windows 10 / 11
+- .NET 8 Desktop Runtime（框架依赖发布包需要）
 - BetterGI 已安装
 
----
+开发环境：
 
-## 📝 开发
+- .NET 8 SDK
+- Windows + WPF 支持
 
-```bash
+仓库包含 `global.json`，默认使用 .NET SDK `8.0.421`，允许滚动到同一主版本的更新 feature band。
+
+## 开发
+
+```powershell
 dotnet run
 ```
 
-## 🔨 编译
+构建：
 
 ```powershell
-.\build.ps1          # 框架依赖单文件（推荐）
-.\build.ps1 -SelfContained  # 自包含单文件
+dotnet build --nologo
+dotnet build -c Release --nologo
 ```
 
-编译后 `copy/` 和 `config.json` 会自动复制到 `publish/` 目录。
+测试：
 
----
+```powershell
+dotnet test BGIJSTool.Tests\BGIJSTool.Tests.csproj --nologo
+```
 
-## 📄 License
+发布：
 
-本项目为 BetterGI 辅助脚本配套管理工具，仅供学习/研究用途。
+```powershell
+.\build.ps1
+.\build.ps1 -SelfContained
+```
 
-## 📝 编码说明
+发布脚本会执行 Release build，并在发现测试项目时执行 `dotnet test`。发布目录会附带：
 
-本项目所有源文件（.cs、.xaml）、配置文件（config.json）、文档（.md）均使用 UTF-8 编码，以确保中文内容正确显示。
+- `BGIJSTool.exe`
+- `config.json`
+- `copy/`
+- `README.md`
+- `SPEC.md`
+
+## 发布模式
+
+- Framework-Dependent：默认模式，体积更小，目标机器需要安装 .NET 8 Desktop Runtime。
+- Self-Contained：使用 `.\build.ps1 -SelfContained`，体积更大，目标机器无需额外安装 .NET 运行时。
+
+## 编码说明
+
+源码、配置和文档统一使用 UTF-8。请避免用非 UTF-8 编码保存 `.cs`、`.xaml`、`.json`、`.md` 文件。
+
+## 说明
+
+本工具是 BetterGI 脚本配套管理工具，仅用于脚本文件维护、备份和还原场景。

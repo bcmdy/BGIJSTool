@@ -140,7 +140,7 @@ Write-Ok "Release 编译完成"
 $TestProjects = Get-ChildItem -Path $ScriptDir -Recurse -Filter "*.Tests.csproj" -ErrorAction SilentlyContinue
 if ($TestProjects.Count -gt 0) {
     foreach ($TestProject in $TestProjects) {
-        dotnet test $TestProject.FullName -c $Configuration --no-restore --nologo
+        dotnet test $TestProject.FullName -c $Configuration --nologo
         if ($LASTEXITCODE -ne 0) {
             Write-Err "测试失败: $($TestProject.FullName)"
             exit $LASTEXITCODE

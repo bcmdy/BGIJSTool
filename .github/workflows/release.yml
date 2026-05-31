@@ -47,11 +47,11 @@ jobs:
       run: |
         $testProjects = Get-ChildItem -Recurse -Filter "*.Tests.csproj"
         if ($testProjects.Count -eq 0) {
-          Write-Host "未发现测试项目，跳过 dotnet test。"
+          Write-Host "No test project found, skip dotnet test."
           exit 0
         }
         foreach ($project in $testProjects) {
-          dotnet test $project.FullName -c Release --no-restore --nologo
+          dotnet test $project.FullName -c Release --nologo
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
         }
 

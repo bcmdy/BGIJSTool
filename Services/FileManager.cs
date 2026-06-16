@@ -113,53 +113,6 @@ public class FileManager
     }
 
     // =========================================================================
-    //  对外入口
-    // =========================================================================
-
-    public void ExecuteSteps(IEnumerable<Step> steps, ILogger logger)
-    {
-        var moduleSteps = steps.ToList();
-        if (moduleSteps.Count == 0) return;
-
-        bool hasBak = false;
-        var bakPaths = new HashSet<string>();
-        var copyPaths = new List<string>();
-
-        foreach (var step in moduleSteps)
-        {
-            if (step.op is OpType.bak or OpType.del)
-                foreach (var p in step.paths) bakPaths.Add(p);
-            if (step.op == OpType.bak) hasBak = true;
-            if (step.op == OpType.copy) copyPaths.AddRange(step.paths);
-        }
-
-        if (hasBak && bakPaths.Count > 0)
-        {
-            var zipLabel = "backup";
-            try { zipLabel = moduleSteps.First().paths.FirstOrDefault() ?? "backup"; } catch { }
-            CreateBakZip(bakPaths.ToList(), copyPaths, zipLabel, logger);
-        }
-
-        foreach (var step in moduleSteps)
-        {
-            switch (step.op)
-            {
-                case OpType.bak: break;
-                case OpType.del: ExecuteDel(step.paths, logger); break;
-                case OpType.restore:
-                    foreach (var p in step.paths)
-                        foreach (var resolved in ResolveBgiPaths(p))
-                            RestoreFile(resolved, logger);
-                    break;
-                case OpType.copy: ExecuteCopy(step, logger); break;
-            }
-        }
-    }
-
-    public void ExecuteStep(Step step, ILogger logger)
-        => ExecuteSteps(new[] { step }, logger);
-
-    // =========================================================================
     //  bak
     // =========================================================================
 
@@ -280,17 +233,6 @@ public class FileManager
 
         sanitized = sanitized.Trim().TrimEnd('.');
         return sanitized.Length == 0 ? string.Empty : sanitized;
-    }
-
-    // =========================================================================
-    //  del
-    // =========================================================================
-
-    private void ExecuteDel(IEnumerable<string> paths, ILogger logger)
-    {
-        foreach (var p in paths)
-            foreach (var resolved in ResolveBgiPaths(p))
-                DeleteFile(resolved, logger);
     }
 
     // =========================================================================
@@ -607,7 +549,7 @@ public class FileManager
     }
 
     // =========================================================================
-    //  其他方法保持不变
+    //  文件原子操作与路径解析
     // =========================================================================
 
     private List<string> FindCopyZip(string query)
@@ -622,22 +564,6 @@ public class FileManager
             return Directory.GetFiles(_copyPath, query, SearchOption.TopDirectoryOnly).ToList();
 
         return Directory.GetFiles(_copyPath, $"{query}*.zip", SearchOption.TopDirectoryOnly).ToList();
-    }
-
-    public void ExecuteCopyStep(Step step, ILogger logger) => ExecuteCopy(step, logger);
-
-    public void BackupFile(string relativePath, ILogger logger)
-    {
-        var src = GetFullPath(relativePath);
-        var dst = GetBackupPath(relativePath);
-        if (!File.Exists(src))
-        {
-            logger.LogWarning($"文件不存在，跳过备份: {src}");
-            return;
-        }
-        Directory.CreateDirectory(Path.GetDirectoryName(dst)!);
-        File.Copy(src, dst, true);
-        logger.LogSuccess($"{src} -> {dst}");
     }
 
     public void DeleteFile(string relativePath, ILogger logger)

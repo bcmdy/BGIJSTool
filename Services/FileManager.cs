@@ -212,8 +212,15 @@ public class FileManager
                 using var zf = new ICSharpCode.SharpZipLib.Zip.ZipFile(fs);
                 foreach (ZipEntry entry in zf)
                 {
-                    if (!entry.IsDirectory)
-                        copyDeletedPaths.Add(entry.Name.Replace('\\', '/'));
+                    if (entry.IsDirectory) continue;
+
+                    var name = entry.Name.Replace('\\', '/');
+                    // 清理路径会在还原时直接删除文件，必须先校验安全性，
+                    // 否则恶意 copy zip 可借由清单 del 列表实现路径穿越。
+                    if (IsSafeRelativePath(name))
+                        copyDeletedPaths.Add(name);
+                    else
+                        logger.LogWarning($"跳过非法清理路径（可能的路径穿越）: {name}");
                 }
             }
             catch { }
@@ -320,6 +327,12 @@ public class FileManager
                         {
                             foreach (var p in entry.Paths ?? new List<string>())
                             {
+                                // 防御纵深：即使清单被篡改，还原时也再校验一次
+                                if (!IsSafeRelativePath(p))
+                                {
+                                    logger.LogWarning($"跳过非法清理路径（可能的路径穿越）: {p}");
+                                    continue;
+                                }
                                 DeleteFile(p, logger);
                             }
                         }
@@ -495,11 +508,21 @@ public class FileManager
 
         // 规范化后路径必须位于目标目录内
         var cleanName = entryName.Replace('\\', '/').TrimStart('/');
-        var fullPath = Path.GetFullPath(Path.Combine(destDir, cleanName));
         var fullDestDir = Path.GetFullPath(destDir);
+        if (!fullDestDir.EndsWith(Path.DirectorySeparatorChar))
+            fullDestDir += Path.DirectorySeparatorChar;
+        var fullPath = Path.GetFullPath(Path.Combine(fullDestDir, cleanName));
 
         return fullPath.StartsWith(fullDestDir, StringComparison.OrdinalIgnoreCase);
     }
+
+    /// <summary>
+    /// 校验相对于 JsScript 根目录的相对路径是否安全（不含上级目录引用、
+    /// 不是绝对/盘符路径）。用于备份清单中记录或还原的待删除路径，
+    /// 防止路径穿越到 JsScript 目录之外。
+    /// </summary>
+    private bool IsSafeRelativePath(string relativePath)
+        => IsSafePath(relativePath, GetFullPath(""));
 
     /// <summary>
     /// 将 SharpZipLib 用 UTF-8 解码后的乱码字符串，用 GBK 重新解码原始字节。

@@ -183,7 +183,7 @@ namespace BGIJSTool
             ModuleCombo.SelectedIndex = 0;
         }
 
-        private void ExecuteBtn_Click(object sender, RoutedEventArgs e)
+        private async void ExecuteBtn_Click(object sender, RoutedEventArgs e)
         {
             if (ModuleCombo.SelectedItem is not Module module || !HasSelectedModule())
                 return;
@@ -195,7 +195,9 @@ namespace BGIJSTool
                 var operationService = CreateOperationService();
                 _logger.LogInfo($"开始执行模块: {module.name}");
 
-                var result = operationService.ExecuteModule(module);
+                // 文件 IO 放到后台线程，避免阻塞 UI 线程导致界面假死；
+                // Logger 通过 Dispatcher 回写 UI，后台线程写日志是安全的。
+                var result = await Task.Run(() => operationService.ExecuteModule(module));
                 PopulateRestoreCombo();
 
                 _logger.LogInfo($"批量操作统计: 计划处理 {result.TotalFiles} 个条目，详情见上方成功/警告/错误日志");
@@ -213,7 +215,7 @@ namespace BGIJSTool
             }
         }
 
-        private void ExecuteRestoreBtn_Click(object sender, RoutedEventArgs e)
+        private async void ExecuteRestoreBtn_Click(object sender, RoutedEventArgs e)
         {
             if (RestoreCombo.SelectedItem is not BackupInfo backup || !HasSelectedBackup())
             {
@@ -226,7 +228,8 @@ namespace BGIJSTool
             try
             {
                 _logger.LogInfo($"开始还原: {backup.DisplayText}");
-                CreateOperationService().RestoreBackup(backup.FileName);
+                var operationService = CreateOperationService();
+                await Task.Run(() => operationService.RestoreBackup(backup.FileName));
                 StatusText.Text = "还原完成";
             }
             catch (Exception ex)

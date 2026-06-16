@@ -188,6 +188,25 @@ namespace BGIJSTool
             if (ModuleCombo.SelectedItem is not Module module || !HasSelectedModule())
                 return;
 
+            // 执行含 del 的模块会永久删除真实脚本文件，先二次确认
+            if (module.Steps.Any(s => s.op == OpType.del))
+            {
+                bool hasBackup = module.Steps.Any(s => s.op == OpType.bak);
+                var backupHint = hasBackup
+                    ? "该模块包含备份步骤，删除前会先生成备份。"
+                    : "该模块不包含备份步骤，删除后将无法通过本工具还原！";
+                var confirm = MessageBox.Show(
+                    $"模块「{module.name}」包含删除操作，将永久删除目标脚本文件。\n{backupHint}\n\n确定要继续吗？",
+                    "确认执行删除",
+                    MessageBoxButton.YesNo,
+                    hasBackup ? MessageBoxImage.Question : MessageBoxImage.Warning);
+                if (confirm != MessageBoxResult.Yes)
+                {
+                    _logger.LogInfo($"已取消执行模块: {module.name}");
+                    return;
+                }
+            }
+
             SetBusy(true, "执行中...");
 
             try

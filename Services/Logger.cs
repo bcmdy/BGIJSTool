@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text;
+using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Media;
@@ -44,9 +45,9 @@ namespace BGIJSTool.Services
             var time = DateTime.Now.ToString("HH:mm:ss");
             var brush = LevelBrushes.TryGetValue(type, out var b) ? b : LevelBrushes[LevelInfo];
 
-            var logEntry = $"[{time}] [{type}] {message}\n";
-            AppendToLogBox(logEntry, brush);
-            AppendToFile(logEntry);
+            var line = $"[{time}] [{type}] {message}";
+            AppendToLogBox(line, brush);   // 每条日志单独成段，无需再加换行符
+            AppendToFile(line + "\n");      // 写入文件时补换行，保证每条独立成行
         }
 
         public void LogInfo(string message) => Log(message, LevelInfo);
@@ -78,7 +79,7 @@ namespace BGIJSTool.Services
                 {
                     Foreground = brush
                 };
-                var para = new Paragraph(run);
+                var para = new Paragraph(run) { Margin = new Thickness(0) };
                 _logBox.Document.Blocks.Add(para);
                 _logBox.ScrollToEnd();
             });

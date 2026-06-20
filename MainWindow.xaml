@@ -48,8 +48,14 @@
                     ToolTip="试运行：列出该模块将处理的文件，不做任何改动"/>
             <Button x:Name="ExecuteBtn" Content="执行" Width="80" Margin="0,0,4,0"
                     Click="ExecuteBtn_Click"/>
-            <Button Content="刷新配置" Width="90"
+            <Button Content="刷新配置" Width="80" Margin="0,0,4,0"
                     Click="RefreshBtn_Click"/>
+            <Button x:Name="OpenConfigBtn" Content="打开配置" Width="80" Margin="0,0,4,0"
+                    Click="OpenConfigBtn_Click"
+                    ToolTip="用系统默认程序打开 config.json"/>
+            <Button x:Name="ValidateConfigBtn" Content="校验配置" Width="80"
+                    Click="ValidateConfigBtn_Click"
+                    ToolTip="检查 config.json 的结构与字段，结果输出到日志"/>
         </StackPanel>
 
         <Separator Grid.Row="4" Grid.ColumnSpan="2" Margin="0,4,0,6"/>

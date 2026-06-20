@@ -106,6 +106,8 @@ namespace BGIJSTool
             DeleteBackupBtn.IsEnabled = !_isBusy && HasSelectedBackup();
             OpenLogDirBtn.IsEnabled = !_isBusy;
             ClearLogBtn.IsEnabled = !_isBusy;
+            OpenConfigBtn.IsEnabled = !_isBusy;
+            ValidateConfigBtn.IsEnabled = !_isBusy;
         }
 
         private bool HasSelectedModule()
@@ -388,6 +390,40 @@ namespace BGIJSTool
         private void RefreshBtn_Click(object sender, RoutedEventArgs e)
         {
             LoadConfigIntoUi("配置已刷新");
+        }
+
+        private void OpenConfigBtn_Click(object sender, RoutedEventArgs e)
+        {
+            var path = _configService.ConfigPath;
+            if (!File.Exists(path))
+            {
+                _logger.LogError($"配置文件不存在: {path}");
+                return;
+            }
+
+            try
+            {
+                Process.Start(new ProcessStartInfo { FileName = path, UseShellExecute = true });
+                _logger.LogInfo($"已打开配置文件: {path}（修改后请点“刷新配置”重新加载）");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError($"打开配置文件失败: {ex.Message}");
+            }
+        }
+
+        private void ValidateConfigBtn_Click(object sender, RoutedEventArgs e)
+        {
+            var result = _configService.ValidateConfig();
+            foreach (var error in result.Errors)
+                _logger.LogError($"配置错误: {error}");
+            foreach (var warning in result.Warnings)
+                _logger.LogWarning($"配置警告: {warning}");
+
+            if (!result.HasErrors && !result.HasWarnings)
+                _logger.LogSuccess("配置校验通过，无错误或警告");
+            else
+                _logger.LogInfo($"配置校验完成：{result.Errors.Count} 个错误，{result.Warnings.Count} 个警告");
         }
 
         private void OpenLogDirBtn_Click(object sender, RoutedEventArgs e)

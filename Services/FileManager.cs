@@ -368,9 +368,14 @@ public class FileManager
     //  copy — SharpZipLib + 自动编码识别
     // =========================================================================
 
-    public void ExecuteCopy(Step step, ILogger logger)
+    public void ExecuteCopy(IEnumerable<string> copyQueries, ILogger logger)
     {
-        var zipQuery = step.paths.Count > 0 ? step.paths[0] : "*.zip";
+        foreach (var query in copyQueries)
+            ExtractSingleCopy(query, logger);
+    }
+
+    private void ExtractSingleCopy(string zipQuery, ILogger logger)
+    {
         var matched = FindCopyZip(zipQuery);
         if (matched.Count == 0)
         {

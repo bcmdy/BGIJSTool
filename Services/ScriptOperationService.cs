@@ -67,7 +67,7 @@ public sealed class ScriptOperationService
                     ExecuteRestore(step);
                     break;
                 case OpType.copy:
-                    ExecuteCopy(step);
+                    _fileManager.ExecuteCopy(step.paths, _logger);
                     break;
             }
         }
@@ -96,12 +96,6 @@ public sealed class ScriptOperationService
             foreach (var resolvedPath in _fileManager.ResolveBgiPaths(path))
                 _fileManager.RestoreFile(resolvedPath, _logger);
         }
-    }
-
-    private void ExecuteCopy(Step step)
-    {
-        foreach (var path in step.paths)
-            _fileManager.ExecuteCopy(new Step { paths = new() { path } }, _logger);
     }
 }
 

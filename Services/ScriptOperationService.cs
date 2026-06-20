@@ -13,7 +13,7 @@ public sealed class ScriptOperationService
         _logger = logger;
     }
 
-    public OperationResult ExecuteModule(Module module)
+    public OperationResult ExecuteModule(Module module, IProgress<string>? progress = null)
     {
         var moduleSteps = module.Steps.ToList();
         var totalFiles = 0;
@@ -50,12 +50,16 @@ public sealed class ScriptOperationService
 
         if (hasBackupStep && backupPaths.Count > 0)
         {
+            progress?.Report("正在备份…");
             _logger.LogInfo($"Module backup: {module.name}, paths: {backupPaths.Count}");
             _fileManager.CreateBakZip(backupPaths.ToList(), copyPaths, module.name, _logger);
         }
 
+        var stepIndex = 0;
         foreach (var step in moduleSteps)
         {
+            stepIndex++;
+            progress?.Report($"正在{OpLabel(step.op)}…（步骤 {stepIndex}/{moduleSteps.Count}）");
             switch (step.op)
             {
                 case OpType.bak:
@@ -74,6 +78,15 @@ public sealed class ScriptOperationService
 
         return new OperationResult(totalFiles);
     }
+
+    private static string OpLabel(OpType op) => op switch
+    {
+        OpType.bak => "备份",
+        OpType.del => "删除",
+        OpType.restore => "还原",
+        OpType.copy => "复制",
+        _ => op.ToString()
+    };
 
     public void RestoreBackup(string zipFileName)
     {

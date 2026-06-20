@@ -214,9 +214,12 @@ namespace BGIJSTool
                 var operationService = CreateOperationService();
                 _logger.LogInfo($"开始执行模块: {module.name}");
 
+                // 在 UI 线程创建 Progress，使后台线程的进度回调自动切回 UI 线程更新状态栏。
+                var progress = new Progress<string>(status => StatusText.Text = status);
+
                 // 文件 IO 放到后台线程，避免阻塞 UI 线程导致界面假死；
                 // Logger 通过 Dispatcher 回写 UI，后台线程写日志是安全的。
-                var result = await Task.Run(() => operationService.ExecuteModule(module));
+                var result = await Task.Run(() => operationService.ExecuteModule(module, progress));
                 PopulateRestoreCombo();
 
                 _logger.LogInfo($"批量操作统计: 计划处理 {result.TotalFiles} 个条目，详情见上方成功/警告/错误日志");

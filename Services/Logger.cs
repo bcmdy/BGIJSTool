@@ -8,12 +8,21 @@ namespace BGIJSTool.Services
 {
     public class Logger : ILogger
     {
-        // 预先创建并冻结画刷，避免每条日志都新建 BrushConverter 并解析颜色字符串。
-        // 冻结后的画刷线程安全，可在所有日志行间共享。
-        private static readonly Brush InfoBrush    = CreateFrozenBrush("#000000");
-        private static readonly Brush SuccessBrush = CreateFrozenBrush("#008000");
-        private static readonly Brush WarningBrush = CreateFrozenBrush("#FFA500");
-        private static readonly Brush ErrorBrush   = CreateFrozenBrush("#FF0000");
+        // 日志级别标签：集中定义，供级别方法与颜色映射共用，避免散落的字符串字面量。
+        public const string LevelInfo    = "信息";
+        public const string LevelSuccess = "成功";
+        public const string LevelWarning = "警告";
+        public const string LevelError   = "错误";
+
+        // 级别 -> 颜色画刷映射。画刷预创建并冻结，线程安全且避免逐行重复解析颜色字符串。
+        private static readonly IReadOnlyDictionary<string, Brush> LevelBrushes =
+            new Dictionary<string, Brush>
+            {
+                [LevelInfo]    = CreateFrozenBrush("#000000"),
+                [LevelSuccess] = CreateFrozenBrush("#008000"),
+                [LevelWarning] = CreateFrozenBrush("#FFA500"),
+                [LevelError]   = CreateFrozenBrush("#FF0000"),
+            };
 
         private readonly RichTextBox _logBox;
 
@@ -33,27 +42,20 @@ namespace BGIJSTool.Services
         public void Log(string message, string type)
         {
             var time = DateTime.Now.ToString("HH:mm:ss");
-            var brush = type switch
-            {
-                "信息" => InfoBrush,
-                "成功" => SuccessBrush,
-                "警告" => WarningBrush,
-                "错误" => ErrorBrush,
-                _ => InfoBrush
-            };
+            var brush = LevelBrushes.TryGetValue(type, out var b) ? b : LevelBrushes[LevelInfo];
 
             var logEntry = $"[{time}] [{type}] {message}\n";
             AppendToLogBox(logEntry, brush);
             AppendToFile(logEntry);
         }
 
-        public void LogInfo(string message) => Log(message, "信息");
+        public void LogInfo(string message) => Log(message, LevelInfo);
 
-        public void LogSuccess(string message) => Log(message, "成功");
+        public void LogSuccess(string message) => Log(message, LevelSuccess);
 
-        public void LogWarning(string message) => Log(message, "警告");
+        public void LogWarning(string message) => Log(message, LevelWarning);
 
-        public void LogError(string message) => Log(message, "错误");
+        public void LogError(string message) => Log(message, LevelError);
 
         public void ClearCurrentLog()
         {

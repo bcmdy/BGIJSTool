@@ -101,7 +101,6 @@ namespace BGIJSTool
         private void UpdateActionState()
         {
             ExecuteBtn.IsEnabled = !_isBusy && _isBgiPathValid && HasSelectedModule();
-            PreviewBtn.IsEnabled = !_isBusy && _isBgiPathValid && HasSelectedModule();
             ExecuteRestoreBtn.IsEnabled = !_isBusy && _isBgiPathValid && HasSelectedBackup();
             DeleteBackupBtn.IsEnabled = !_isBusy && HasSelectedBackup();
             OpenLogDirBtn.IsEnabled = !_isBusy;
@@ -139,37 +138,41 @@ namespace BGIJSTool
             if (ModuleCombo.SelectedItem is not Module module || ReferenceEquals(module, PlaceholderModule))
                 return;
 
-            var typeList = new List<string>();
-            foreach (var step in module.Steps)
-            {
-                typeList.Add(step.op switch
-                {
-                    OpType.bak => "备份",
-                    OpType.del => "删除",
-                    OpType.restore => "还原",
-                    OpType.copy => "复制",
-                    _ => step.op.ToString()
-                });
-            }
-
+            var typeList = module.Steps.Select(s => OpDisplayName(s.op));
             _logger.LogInfo($"已选择模块: {module.name}  [{string.Join(" + ", typeList)}]");
 
-            int index = 1;
-            foreach (var step in module.Steps)
+            if (_isBgiPathValid)
             {
-                string opLabel = step.op switch
+                // 路径有效：打印解析后的预览（实际会命中的文件 / copy 包），不做任何改动
+                var lines = CreateOperationService().PreviewModule(module);
+                if (lines.Count == 0)
                 {
-                    OpType.bak => "备份",
-                    OpType.del => "删除",
-                    OpType.restore => "还原",
-                    OpType.copy => "复制",
-                    _ => step.op.ToString()
-                };
-
-                foreach (var path in step.paths)
-                    _logger.LogInfo($"  [{index++} {opLabel}] {path}");
+                    _logger.LogWarning("该模块没有可预览的内容");
+                    return;
+                }
+                foreach (var line in lines)
+                    _logger.LogInfo("  " + line);
+                _logger.LogInfo($"预览：共 {lines.Count} 条（以上为将要处理的目标，未执行）");
+            }
+            else
+            {
+                // 尚未配置有效 BetterGI 路径，无法解析实际文件，先列出配置中的原始路径
+                int index = 1;
+                foreach (var step in module.Steps)
+                    foreach (var path in step.paths)
+                        _logger.LogInfo($"  [{index++} {OpDisplayName(step.op)}] {path}");
+                _logger.LogInfo("（提示：选择有效的 BetterGI 路径后，将显示实际命中文件的预览）");
             }
         }
+
+        private static string OpDisplayName(OpType op) => op switch
+        {
+            OpType.bak => "备份",
+            OpType.del => "删除",
+            OpType.restore => "还原",
+            OpType.copy => "复制",
+            _ => op.ToString()
+        };
 
         private void PopulateModuleCombo(List<Module>? modules)
         {
@@ -184,23 +187,6 @@ namespace BGIJSTool
             items.AddRange(modules);
             ModuleCombo.ItemsSource = items;
             ModuleCombo.SelectedIndex = 0;
-        }
-
-        private void PreviewBtn_Click(object sender, RoutedEventArgs e)
-        {
-            if (ModuleCombo.SelectedItem is not Module module || !HasSelectedModule())
-                return;
-
-            _logger.LogInfo($"预览模块: {module.name}（试运行，不会修改任何文件）");
-            var lines = CreateOperationService().PreviewModule(module);
-            if (lines.Count == 0)
-            {
-                _logger.LogWarning("该模块没有可预览的内容");
-                return;
-            }
-            foreach (var line in lines)
-                _logger.LogInfo("  " + line);
-            _logger.LogInfo($"预览完成，共 {lines.Count} 条（以上为将要处理的目标，未执行）");
         }
 
         private async void ExecuteBtn_Click(object sender, RoutedEventArgs e)

@@ -16,17 +16,19 @@ namespace BGIJSTool.Services
         private static readonly Brush ErrorBrush   = CreateFrozenBrush("#FF0000");
 
         private readonly RichTextBox _logBox;
-        private readonly string _logFilePath;
 
         public Logger(RichTextBox logBox, string programPath)
         {
             _logBox = logBox;
             LogDirectory = Path.Combine(programPath, "logs");
             Directory.CreateDirectory(LogDirectory);
-            _logFilePath = Path.Combine(LogDirectory, DateTime.Now.ToString("yyyy-MM-dd") + ".log");
         }
 
         public string LogDirectory { get; }
+
+        // 按写入时刻的日期决定文件名，避免程序跨午夜运行后仍写入前一天的日志文件。
+        private string CurrentLogFilePath
+            => Path.Combine(LogDirectory, DateTime.Now.ToString("yyyy-MM-dd") + ".log");
 
         public void Log(string message, string type)
         {
@@ -56,7 +58,7 @@ namespace BGIJSTool.Services
         public void ClearCurrentLog()
         {
             _logBox.Dispatcher.Invoke(() => _logBox.Document.Blocks.Clear());
-            File.WriteAllText(_logFilePath, string.Empty, Encoding.UTF8);
+            File.WriteAllText(CurrentLogFilePath, string.Empty, Encoding.UTF8);
         }
 
         private static Brush CreateFrozenBrush(string color)
@@ -82,7 +84,7 @@ namespace BGIJSTool.Services
 
         private void AppendToFile(string text)
         {
-            File.AppendAllText(_logFilePath, text, Encoding.UTF8);
+            File.AppendAllText(CurrentLogFilePath, text, Encoding.UTF8);
         }
     }
 }

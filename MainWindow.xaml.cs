@@ -325,8 +325,7 @@ namespace BGIJSTool
         private void PopulateRestoreCombo()
         {
             var selectedFileName = (RestoreCombo.SelectedItem as BackupInfo)?.FileName;
-            var fileManager = new FileManager(_configService.GetBGIPath(), _programPath);
-            var backups = fileManager.GetBackupInfos();
+            var backups = GetFileManager().GetBackupInfos();
 
             RestoreCombo.ItemsSource = backups;
             RestoreCombo.IsEditable = false;
@@ -444,8 +443,24 @@ namespace BGIJSTool
 
         private ScriptOperationService CreateOperationService()
         {
-            var fileManager = new FileManager(_configService.GetBGIPath(), _programPath);
-            return new ScriptOperationService(fileManager, _logger);
+            return new ScriptOperationService(GetFileManager(), _logger);
+        }
+
+        // 缓存 FileManager 实例，仅在 BetterGI 路径变化时重建，避免每次操作都重复
+        // 创建并重复创建 backup/copy 目录。
+        private FileManager? _fileManager;
+        private string? _fileManagerBgiPath;
+
+        private FileManager GetFileManager()
+        {
+            var bgiPath = _configService.GetBGIPath();
+            if (_fileManager is null ||
+                !string.Equals(_fileManagerBgiPath, bgiPath, StringComparison.OrdinalIgnoreCase))
+            {
+                _fileManager = new FileManager(bgiPath, _programPath);
+                _fileManagerBgiPath = bgiPath;
+            }
+            return _fileManager;
         }
     }
 }

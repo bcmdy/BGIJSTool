@@ -14,7 +14,6 @@ namespace BGIJSTool.Services;
 public class FileManager
 {
     private static readonly Encoding GBK     = Encoding.GetEncoding("GBK");
-    private static readonly Encoding GB18030 = Encoding.GetEncoding("GB18030");
 
     private readonly string _bgiPath;
     private readonly string _programPath;
@@ -162,7 +161,7 @@ public class FileManager
             try
             {
                 using var fs = File.OpenRead(zipFile);
-                using var zf = new ICSharpCode.SharpZipLib.Zip.ZipFile(fs);
+                using var zf = OpenZipWithGbkFallback(fs);
                 foreach (ZipEntry entry in zf)
                 {
                     if (entry.IsDirectory) continue;
@@ -371,8 +370,9 @@ public class FileManager
     }
 
     /// <summary>
-    /// SharpZipLib 解压，自动识别条目名编码（UTF-8 vs GBK），并校验路径安全性。
-    /// 通过启发式检测判断 SharpZipLib 解码后的文件名是否正确。
+    /// 用 SharpZipLib 解压并校验路径安全性。文件名编码依据每个条目的语言编码
+    /// 标志位(general purpose bit 11)判定：置位用 UTF-8，未置位回退到 GBK(936)
+    /// ——中文 Windows 创建 zip 的常见编码。无需基于词表的启发式猜测。
     /// </summary>
     private int ExtractWithAutoEncoding(string zipFile, string destDir, ILogger logger)
     {
@@ -380,43 +380,14 @@ public class FileManager
         int skipped = 0;
 
         using var fs = File.OpenRead(zipFile);
-        using var zf = new ICSharpCode.SharpZipLib.Zip.ZipFile(fs);
+        using var zf = OpenZipWithGbkFallback(fs);
 
-        // 先尝试用 UTF-8 读取所有条目，检测是否有乱码
-        var entries = new List<(ZipEntry Entry, string DecodedName, bool IsValid)>();
         foreach (ZipEntry entry in zf)
         {
             if (entry.IsDirectory) continue;
 
-            var decodedName = entry.Name; // SharpZipLib 自动解码的结果
-            var isValid = !ContainsMojibake(decodedName) && IsPlausiblePath(decodedName);
-            entries.Add((entry, decodedName, isValid));
-        }
-
-        // 判断整体编码：如果有超过 50% 的条目乱码，则认为是 GBK 编码
-        var total = entries.Count;
-        var validCount = entries.Count(e => e.IsValid);
-        var useGbk = total > 0 && validCount < total / 2;
-
-        if (useGbk)
-            logger.LogInfo("检测到 zip 使用 GBK 编码，将重新解码文件名");
-
-        foreach (var (entry, decodedName, isValid) in entries)
-        {
-            string entryName;
-            if (isValid || !useGbk)
-            {
-                entryName = decodedName;
-            }
-            else
-            {
-                // 用 GBK 重新解码原始字节
-                entryName = ReDecodeWithGbk(decodedName);
-                logger.LogInfo($"编码修正: {decodedName} -> {entryName}");
-            }
-
             // 规范化路径：统一处理反斜杠/正斜杠
-            entryName = entryName.Replace('\\', '/').TrimStart('/');
+            var entryName = entry.Name.Replace('\\', '/').TrimStart('/');
 
             // 路径安全校验：阻止路径穿越攻击
             if (!IsSafePath(entryName, destDir))
@@ -431,9 +402,9 @@ public class FileManager
 
             Directory.CreateDirectory(targetDir);
 
-            using var entryStream = zf.GetInputStream(entry);
-            using var fileStream = File.Create(targetPath);
-            entryStream.CopyTo(fileStream);
+            using (var entryStream = zf.GetInputStream(entry))
+            using (var fileStream = File.Create(targetPath))
+                entryStream.CopyTo(fileStream);
 
             copied++;
             logger.LogSuccess($"解压覆盖: {entryName} -> {targetPath}");
@@ -443,6 +414,18 @@ public class FileManager
             logger.LogWarning($"本次解压跳过 {skipped} 个非法路径条目");
 
         return copied;
+    }
+
+    /// <summary>
+    /// 以 GBK 作为非 Unicode 条目名的回退代码页打开 zip。SharpZipLib 在构造时即
+    /// 依据每个条目的语言编码标志位(bit 11)解码文件名：置位用 UTF-8，未置位用
+    /// 此处设定的 GBK(936)，覆盖中文 Windows 创建 zip 的常见情况。读取完毕即恢复
+    /// 全局设置，避免影响其他调用。
+    /// </summary>
+    private static ICSharpCode.SharpZipLib.Zip.ZipFile OpenZipWithGbkFallback(Stream stream)
+    {
+        var codec = StringCodec.FromCodePage(GBK.CodePage); // 936
+        return new ICSharpCode.SharpZipLib.Zip.ZipFile(stream, leaveOpen: false, stringCodec: codec);
     }
 
     /// <summary>
@@ -481,88 +464,6 @@ public class FileManager
     /// </summary>
     private bool IsSafeRelativePath(string relativePath)
         => IsSafePath(relativePath, GetFullPath(""));
-
-    /// <summary>
-    /// 将 SharpZipLib 用 UTF-8 解码后的乱码字符串，用 GBK 重新解码原始字节。
-    /// 原理：UTF-8 解码 GBK 字节后得到的乱码字符串，再 Encode 回 UTF-8 字节，
-    /// 这些字节其实就是原始的 GBK 字节，再用 GBK 解码即可。
-    /// </summary>
-    private static string ReDecodeWithGbk(string utf8DecodedGarbage)
-    {
-        try
-        {
-            // 关键步骤：把 UTF-8 乱码字符串编码回字节（这些字节就是原始 GBK 字节）
-            var bytes = Encoding.UTF8.GetBytes(utf8DecodedGarbage);
-            var fixedName = GBK.GetString(bytes);
-
-            if (!ContainsMojibake(fixedName))
-                return fixedName;
-        }
-        catch { }
-
-        try
-        {
-            // 再试 GB18030
-            var bytes = Encoding.UTF8.GetBytes(utf8DecodedGarbage);
-            var fixedName = GB18030.GetString(bytes);
-
-            if (!ContainsMojibake(fixedName))
-                return fixedName;
-        }
-        catch { }
-
-        return utf8DecodedGarbage;
-    }
-
-    /// <summary>
-    /// 启发式检测：判断字符串是否含乱码。
-    /// 检测 Unicode 替换字符、锟斤拷模式、以及中文路径中的异常字符。
-    /// </summary>
-    private static bool ContainsMojibake(string text)
-    {
-        if (string.IsNullOrEmpty(text)) return false;
-
-        if (text.Contains('�')) return true;  // Unicode 替换字符
-        if (text.Contains('锟')) return true;     // 锟斤拷系列乱码
-
-        int suspiciousCount = 0;
-        foreach (var c in text)
-        {
-            // 希腊字母 U+0370-U+03FF, 西里尔字母 U+0400-U+04FF
-            if ((c >= 'Ͱ' && c <= 'Ͽ') || (c >= 'Ѐ' && c <= 'ӿ'))
-                suspiciousCount++;
-            if (c < 32 && c is not ('\r' or '\n' or '\t')) return true;
-        }
-
-        return text.Length > 0 && suspiciousCount > text.Length / 4;
-    }
-
-    /// <summary>
-    /// 判断路径是否像合理的中文路径（包含常见中文字符或特定英文关键词）。
-    /// 用于区分 "确实乱码" 和 "本来就是英文路径" 的情况。
-    /// </summary>
-    private static bool IsPlausiblePath(string path)
-    {
-        if (string.IsNullOrEmpty(path)) return true;
-
-        // 如果路径包含这些中文游戏术语，认为是中文路径
-        var chineseMarkers = new[]
-        {
-            "路线", "执行", "准备", "清怪", "收尾",
-            "稻妻", "须弥", "踏鞴", "智障", "狗粮", "茶叶",
-            "ArtifactsPath"
-        };
-        foreach (var marker in chineseMarkers)
-        {
-            if (path.Contains(marker)) return true;
-        }
-
-        // 如果路径全是 ASCII，也认为是合理的（纯英文路径）
-        if (path.All(c => c < 128)) return true;
-
-        // 包含非 ASCII 但不含中文标记，可能是乱码
-        return false;
-    }
 
     // =========================================================================
     //  文件原子操作与路径解析

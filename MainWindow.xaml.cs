@@ -101,6 +101,7 @@ namespace BGIJSTool
         private void UpdateActionState()
         {
             ExecuteBtn.IsEnabled = !_isBusy && _isBgiPathValid && HasSelectedModule();
+            PreviewBtn.IsEnabled = !_isBusy && _isBgiPathValid && HasSelectedModule();
             ExecuteRestoreBtn.IsEnabled = !_isBusy && _isBgiPathValid && HasSelectedBackup();
             DeleteBackupBtn.IsEnabled = !_isBusy && HasSelectedBackup();
             OpenLogDirBtn.IsEnabled = !_isBusy;
@@ -181,6 +182,23 @@ namespace BGIJSTool
             items.AddRange(modules);
             ModuleCombo.ItemsSource = items;
             ModuleCombo.SelectedIndex = 0;
+        }
+
+        private void PreviewBtn_Click(object sender, RoutedEventArgs e)
+        {
+            if (ModuleCombo.SelectedItem is not Module module || !HasSelectedModule())
+                return;
+
+            _logger.LogInfo($"预览模块: {module.name}（试运行，不会修改任何文件）");
+            var lines = CreateOperationService().PreviewModule(module);
+            if (lines.Count == 0)
+            {
+                _logger.LogWarning("该模块没有可预览的内容");
+                return;
+            }
+            foreach (var line in lines)
+                _logger.LogInfo("  " + line);
+            _logger.LogInfo($"预览完成，共 {lines.Count} 条（以上为将要处理的目标，未执行）");
         }
 
         private async void ExecuteBtn_Click(object sender, RoutedEventArgs e)

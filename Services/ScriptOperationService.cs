@@ -93,6 +93,45 @@ public sealed class ScriptOperationService
         _fileManager.ExecuteRestoreFromZip(zipFileName, _logger);
     }
 
+    /// <summary>
+    /// 试运行：解析模块各步骤实际会命中的文件/压缩包，仅生成可读清单，不做任何改动。
+    /// </summary>
+    public IReadOnlyList<string> PreviewModule(Module module)
+    {
+        var lines = new List<string>();
+        var stepIndex = 0;
+        foreach (var step in module.Steps)
+        {
+            stepIndex++;
+            var label = OpLabel(step.op);
+
+            if (step.op == OpType.copy)
+            {
+                foreach (var query in step.paths)
+                {
+                    var matched = _fileManager.FindCopyZipNames(query);
+                    lines.Add(matched.Count == 0
+                        ? $"[{stepIndex} {label}] {query} -> （copy/ 下未找到匹配 zip）"
+                        : $"[{stepIndex} {label}] {query} -> {string.Join(", ", matched)}");
+                }
+                continue;
+            }
+
+            foreach (var path in step.paths)
+            {
+                var resolved = _fileManager.ResolveBgiPaths(path).ToList();
+                if (resolved.Count == 0)
+                {
+                    lines.Add($"[{stepIndex} {label}] {path} -> （无匹配文件）");
+                    continue;
+                }
+                foreach (var rel in resolved)
+                    lines.Add($"[{stepIndex} {label}] {rel}");
+            }
+        }
+        return lines;
+    }
+
     private void ExecuteDelete(Step step)
     {
         foreach (var path in step.paths)

@@ -512,6 +512,10 @@ public class FileManager
         return Directory.GetFiles(_copyPath, $"{query}*.zip", SearchOption.TopDirectoryOnly).ToList();
     }
 
+    /// <summary>预览某个 copy 查询会匹配到的 zip 文件名（不解压），供试运行使用。</summary>
+    public IReadOnlyList<string> FindCopyZipNames(string query)
+        => FindCopyZip(query).Select(Path.GetFileName).Where(n => n is not null).Cast<string>().ToList();
+
     public void DeleteFile(string relativePath, ILogger logger)
     {
         var full = GetFullPath(relativePath);

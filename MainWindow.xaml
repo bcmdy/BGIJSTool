@@ -43,6 +43,9 @@
                   SelectionChanged="ModuleCombo_SelectionChanged"/>
         <StackPanel Grid.Row="3" Grid.Column="1" Orientation="Horizontal"
                     VerticalAlignment="Center">
+            <Button x:Name="PreviewBtn" Content="预览" Width="70" Margin="0,0,4,0"
+                    Click="PreviewBtn_Click"
+                    ToolTip="试运行：列出该模块将处理的文件，不做任何改动"/>
             <Button x:Name="ExecuteBtn" Content="执行" Width="80" Margin="0,0,4,0"
                     Click="ExecuteBtn_Click"/>
             <Button Content="刷新配置" Width="90"

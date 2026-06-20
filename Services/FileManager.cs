@@ -176,7 +176,10 @@ public class FileManager
                         logger.LogWarning($"跳过非法清理路径（可能的路径穿越）: {name}");
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                logger.LogWarning($"读取 copy 压缩包失败，未记录其清理清单: {cp}  ({ex.Message})");
+            }
         }
 
         var restoreEntries = new List<object>();
@@ -195,7 +198,7 @@ public class FileManager
         bool hasContent = baked.Count > 0 || copyDeletedPaths.Count > 0;
         if (!hasContent)
         {
-            try { Directory.Delete(tmpDir, true); } catch { }
+            TryCleanupTempDir(tmpDir, logger);
             logger.LogWarning($"备份路径未能解析到实际文件，未生成 zip");
             return;
         }
@@ -216,7 +219,7 @@ public class FileManager
 
         System.IO.Compression.ZipFile.CreateFromDirectory(tmpDir, zipFull,
             System.IO.Compression.CompressionLevel.Optimal, false);
-        try { Directory.Delete(tmpDir, true); } catch { }
+        TryCleanupTempDir(tmpDir, logger);
 
         logger.LogSuccess($"备份完成（zip）: {zipFn}  共 {baked.Count} 个文件");
     }
@@ -295,7 +298,7 @@ public class FileManager
                             }
                         }
                     }
-                    try { Directory.Delete(tmpDir, true); } catch { }
+                    TryCleanupTempDir(tmpDir, logger);
                     return;
                 }
             }
@@ -314,7 +317,20 @@ public class FileManager
             File.Copy(f, dst, true);
             logger.LogSuccess($"还原: {rel} -> {dst}");
         }
-        try { Directory.Delete(tmpDir, true); } catch { }
+        TryCleanupTempDir(tmpDir, logger);
+    }
+
+    private static void TryCleanupTempDir(string dir, ILogger logger)
+    {
+        try
+        {
+            if (Directory.Exists(dir))
+                Directory.Delete(dir, true);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning($"清理临时目录失败: {dir}  ({ex.Message})");
+        }
     }
 
     private static string MakeRelFromRoot(string fullPath, string rootDir)

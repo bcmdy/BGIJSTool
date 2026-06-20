@@ -149,6 +149,7 @@ jobs:
     - name: Release
       uses: softprops/action-gh-release@v2
       with:
+        tag_name: ${{ github.event.release.tag_name }}
         files: BGIJSTool.zip
         body: |
           ## BGIJSTool v${{ github.event.release.tag_name }}

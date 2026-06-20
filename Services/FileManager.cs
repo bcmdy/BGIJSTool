@@ -13,7 +13,15 @@ namespace BGIJSTool.Services;
 
 public class FileManager
 {
-    private static readonly Encoding GBK     = Encoding.GetEncoding("GBK");
+    private static readonly Encoding GBK;
+
+    static FileManager()
+    {
+        // 自行注册代码页提供程序，使 GBK 在未经 App 初始化的场景（如单元测试）下也可用。
+        // 必须在 GetEncoding 之前注册，故放在静态构造函数体内而非字段初始化器。
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        GBK = Encoding.GetEncoding("GBK");
+    }
 
     private readonly string _bgiPath;
     private readonly string _programPath;
@@ -55,9 +63,25 @@ public class FileManager
             return new List<BackupInfo>();
 
         return Directory.GetFiles(_backupPath, "*.zip", SearchOption.TopDirectoryOnly)
-            .Select(ReadBackupInfo)
+            .Select(ReadBackupInfoCached)
             .OrderByDescending(info => info.CreatedAt ?? File.GetLastWriteTime(info.FullPath))
             .ToList();
+    }
+
+    // 按“完整路径 + 最后写入时间”缓存已解析的备份信息，避免每次刷新列表都重新
+    // 打开所有 zip 读取清单。FileManager 每次操作都会重建，故缓存设为静态共享。
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (DateTime LastWrite, BackupInfo Info)>
+        _backupInfoCache = new(StringComparer.OrdinalIgnoreCase);
+
+    private BackupInfo ReadBackupInfoCached(string zipFullPath)
+    {
+        var lastWrite = File.GetLastWriteTimeUtc(zipFullPath);
+        if (_backupInfoCache.TryGetValue(zipFullPath, out var cached) && cached.LastWrite == lastWrite)
+            return cached.Info;
+
+        var info = ReadBackupInfo(zipFullPath);
+        _backupInfoCache[zipFullPath] = (lastWrite, info);
+        return info;
     }
 
     private BackupInfo ReadBackupInfo(string zipFullPath)

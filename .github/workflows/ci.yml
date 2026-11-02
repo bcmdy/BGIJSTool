@@ -21,8 +21,77 @@ jobs:
       with:
         dotnet-version: '8.0.x'
 
+    - name: Determine artifact info
+      id: build_mode
+      shell: pwsh
+      run: |
+        # 分支推送使用分支名，PR 使用 pr-<编号>，避免 ref_name 中出现斜杠
+        if ("${{ github.event_name }}" -eq "pull_request") {
+          $label = "pr-${{ github.event.pull_request.number }}"
+        } else {
+          $label = "${{ github.ref_name }}"
+          if (-not $label) { $label = "dev" }
+        }
+        $label = $label -replace '[\\/:*?"<>|\s]+', '-'
+        $shortSha = "${{ github.sha }}".Substring(0, 7)
+        echo "artifact_name=BGIJSTool-ci-$label-$shortSha" >> $env:GITHUB_OUTPUT
+
     - name: Build (Release)
       run: dotnet build BGIJSTool.csproj -c Release --nologo
 
     - name: Test (Release)
       run: dotnet test BGIJSTool.Tests/BGIJSTool.Tests.csproj -c Release --nologo
+
+    - name: Publish (Framework-Dependent)
+      shell: pwsh
+      run: |
+        dotnet publish BGIJSTool.csproj -c Release -r win-x64 `
+          -p:PublishSingleFile=true `
+          -p:SelfContained=false `
+          -p:IncludeNativeLibrariesForSelfExtract=true `
+          -p:DebugType=none `
+          -p:DebugSymbols=false `
+          --self-contained false `
+          -o ./publish
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+    - name: Copy auxiliary files
+      shell: pwsh
+      run: |
+        if (Test-Path ./copy) {
+          New-Item -ItemType Directory -Force -Path ./publish/copy | Out-Null
+          Copy-Item -Path ./copy/* -Destination ./publish/copy -Recurse -Force
+        }
+        if (Test-Path ./config.json) { Copy-Item -Path ./config.json -Destination ./publish -Force }
+        if (Test-Path ./README.md) { Copy-Item -Path ./README.md -Destination ./publish -Force }
+        if (Test-Path ./SPEC.md) { Copy-Item -Path ./SPEC.md -Destination ./publish -Force }
+
+    - name: Create ZIP archive
+      shell: pwsh
+      run: Compress-Archive -Path ./publish/* -DestinationPath BGIJSTool.zip -Force
+
+    - name: Collect file info
+      shell: pwsh
+      run: |
+        $hash = (Get-FileHash -Algorithm SHA256 -Path ./BGIJSTool.zip).Hash.ToLower()
+        $size = [math]::Round((Get-Item ./BGIJSTool.zip).Length / 1MB, 2)
+        Write-Host "SHA256: $hash"
+        Write-Host "Size  : $size MB"
+
+        $lines = @(
+          '### CI 构建产物',
+          '',
+          ('- 产物名称: {0}' -f '${{ steps.build_mode.outputs.artifact_name }}'),
+          ('- 提交: {0}' -f '${{ github.sha }}'),
+          ('- SHA256: {0}' -f $hash),
+          ('- 大小: {0} MB' -f $size),
+          '- 保留期: 7 天（仅 Actions Artifacts，不发布到 Release）'
+        )
+        $lines -join "`n" >> $env:GITHUB_STEP_SUMMARY
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ steps.build_mode.outputs.artifact_name }}
+        path: BGIJSTool.zip
+        retention-days: 7
